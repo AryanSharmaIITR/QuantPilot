@@ -15,7 +15,6 @@ stocks_tickers={
     "Bajaj Finserv": "BAJAJFINSV.NS",
     "Maruti Suzuki": "MARUTI.NS",
     "Mahindra & Mahindra": "M&M.NS",
-    "Tata Motors": "TATAMOTORS.NS",
     "Sun Pharma": "SUNPHARMA.NS",
     "Dr Reddy's Laboratories": "DRREDDY.NS",
     "Cipla": "CIPLA.NS",
@@ -48,6 +47,10 @@ nse_tickers={
     "Crude Oil Futures": "CL=F",
 }
 
-BASE_DIR_NSE = "./data/raw/market_data"
-BASE_DIR_STOCK = "./data/raw/stock_data"
+RAW_DIR_NSE = "./data/raw/market_data"
+RAW_DIR_STOCK = "./data/raw/stock_data"
+
+PREPROCESSED_DIR_NSE = "./data/preprocessed/market_data"
+PREPROCESSED_DIR_STOCK = "./data/preprocessed/stock_data"
+
 timeperiod="3y"
