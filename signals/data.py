@@ -47,6 +47,55 @@ nse_tickers={
     "Crude Oil Futures": "CL=F",
 }
 
+stocks_cat={
+    "Reliance Industries": 0,
+    "Tata Consultancy Services": 1,
+    "Infosys": 2,
+    "HDFC Bank": 3,
+    "ICICI Bank": 4,
+    "State Bank of India": 5,
+    "Kotak Mahindra Bank": 6,
+    "Axis Bank": 7,
+    "Hindustan Unilever": 8,
+    "ITC": 9,
+    "Larsen & Toubro": 10,
+    "Asian Paints": 11,
+    "Bajaj Finance": 12,
+    "Bajaj Finserv": 13,
+    "Maruti Suzuki": 14,
+    "Mahindra & Mahindra": 15,
+    "Sun Pharma": 16,
+    "Dr Reddy's Laboratories": 17,
+    "Cipla": 18,
+    "Wipro": 19,
+    "HCL Technologies": 20,
+    "Tech Mahindra": 21,
+    "UltraTech Cement": 22,
+    "Tata Steel": 23,
+    "JSW Steel": 24,
+    "Power Grid Corporation": 25,
+    "NTPC": 26,
+    "Adani Enterprises": 27,
+    "Adani Ports": 28
+}
+
+
+nse_cat={
+    # Broad Market Indices (Most commonly tracked)
+    "NIFTY 50": 0,
+    "BSE Sensex": 1,
+    "NIFTY BANK": 2,
+    "INDIA VIX": 3,
+    "NIFTY NEXT 50": 4,
+    # Nifty Broad Market
+    "NIFTY 100": 5,
+    "NIFTY 200": 6,
+    "NIFTY 500": 7,
+    # Exchange 
+    "Gold Futures": 8,
+    "USDINR": 9,
+    "Crude Oil Futures": 10,
+}
 RAW_DIR_NSE = "./data/raw/market_data"
 RAW_DIR_STOCK = "./data/raw/stock_data"
 

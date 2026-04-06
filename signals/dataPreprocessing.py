@@ -1,7 +1,7 @@
 import pandas as pd
 import numpy as np
 import os
-from data import nse_tickers,stocks_tickers,PREPROCESSED_DIR_NSE,PREPROCESSED_DIR_STOCK
+from data import nse_tickers,stocks_tickers,PREPROCESSED_DIR_NSE,PREPROCESSED_DIR_STOCK,nse_cat,stocks_cat
 from data import RAW_DIR_NSE, RAW_DIR_STOCK
 
 class preProcessing:
@@ -92,6 +92,7 @@ class preProcessing:
     def startPreprocessing(self):
         os.makedirs(PREPROCESSED_DIR_NSE, exist_ok=True)
         for name in nse_tickers.keys():
+            temp_name=name
             file_name = name.lower()
             file_name=file_name.replace(" ","")
             file_name=file_name.replace(":","_")
@@ -101,12 +102,14 @@ class preProcessing:
             df=self.set_nan(df)
             df=self.add_technical_indicators(df)
             df=self.set_nan(df)
+            df["category"] = nse_cat[temp_name]
             df.to_csv(os.path.join(PREPROCESSED_DIR_NSE, f"{file_name}.csv"), index=False)
             print(f"{name} NSE Preprocessed")
         
         print("------------------------------   ------------------------------")
         os.makedirs(PREPROCESSED_DIR_STOCK, exist_ok=True)
         for name in stocks_tickers.keys():
+            temp_name=name
             file_name = name.lower()
             file_name=file_name.replace(" ","")
             file_name=file_name.replace(":","_")
@@ -116,7 +119,9 @@ class preProcessing:
             df=self.set_nan(df)
             df=self.add_technical_indicators(df)
             df=self.set_nan(df)
-            df["Target"] = df["day_return_scaled"].shift(-1)
+            df["target"] = df["day_return_scaled"].shift(-1)
+            df["target"] = (df["day_return_scaled"].shift(-1) > 0).astype(int)
+            df["category"] = stocks_cat[temp_name]
             df.to_csv(os.path.join(PREPROCESSED_DIR_STOCK, f"{file_name}.csv"), index=False)
             print(f"{name} Stock Preprocessed")
 
