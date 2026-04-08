@@ -3,6 +3,7 @@ import numpy as np
 import os
 from data import nse_tickers,stocks_tickers,PREPROCESSED_DIR_NSE,PREPROCESSED_DIR_STOCK,nse_cat,stocks_cat
 from data import RAW_DIR_NSE, RAW_DIR_STOCK
+from sklearn.model_selection import train_test_split
 
 class preProcessing:
     def __init__(self):
@@ -91,6 +92,10 @@ class preProcessing:
     
     def startPreprocessing(self):
         os.makedirs(PREPROCESSED_DIR_NSE, exist_ok=True)
+        os.makedirs(os.path.join(PREPROCESSED_DIR_NSE, "train"), exist_ok=True)
+        os.makedirs(os.path.join(PREPROCESSED_DIR_NSE, "val"), exist_ok=True)
+        os.makedirs(os.path.join(PREPROCESSED_DIR_NSE, "test"), exist_ok=True)
+        print("------------------------------   ------------------------------")
         for name in nse_tickers.keys():
             temp_name=name
             file_name = name.lower()
@@ -103,11 +108,27 @@ class preProcessing:
             df=self.add_technical_indicators(df)
             df=self.set_nan(df)
             df["category"] = nse_cat[temp_name]
-            df.to_csv(os.path.join(PREPROCESSED_DIR_NSE, f"{file_name}.csv"), index=False)
+
+            df = df.sort_values("Date").reset_index(drop=True)  # critical
+            n = len(df)
+
+            train_end = int(0.70 * n)
+            val_end   = int(0.85 * n)
+
+            train_df = df.iloc[:train_end]
+            val_df   = df.iloc[train_end:val_end]
+            test_df  = df.iloc[val_end:]
+
+            train_df.to_csv(os.path.join(PREPROCESSED_DIR_NSE,"train", f"{file_name}.csv"), index=False)
+            val_df.to_csv(os.path.join(PREPROCESSED_DIR_NSE, "val", f"{file_name}.csv"), index=False)
+            test_df.to_csv(os.path.join(PREPROCESSED_DIR_NSE, "test", f"{file_name}.csv"), index=False)
             print(f"{name} NSE Preprocessed")
         
         print("------------------------------   ------------------------------")
         os.makedirs(PREPROCESSED_DIR_STOCK, exist_ok=True)
+        os.makedirs(os.path.join(PREPROCESSED_DIR_STOCK, "train"), exist_ok=True)
+        os.makedirs(os.path.join(PREPROCESSED_DIR_STOCK, "val"), exist_ok=True)
+        os.makedirs(os.path.join(PREPROCESSED_DIR_STOCK, "test"), exist_ok=True)
         for name in stocks_tickers.keys():
             temp_name=name
             file_name = name.lower()
@@ -122,7 +143,20 @@ class preProcessing:
             df["target"] = df["day_return_scaled"].shift(-1)
             df["target"] = (df["day_return_scaled"].shift(-1) > 0).astype(int)
             df["category"] = stocks_cat[temp_name]
-            df.to_csv(os.path.join(PREPROCESSED_DIR_STOCK, f"{file_name}.csv"), index=False)
+
+            df = df.sort_values("Date").reset_index(drop=True)  # critical
+            n = len(df)
+
+            train_end = int(0.70 * n)
+            val_end   = int(0.85 * n)
+
+            train_df = df.iloc[:train_end]
+            val_df   = df.iloc[train_end:val_end]
+            test_df  = df.iloc[val_end:]
+
+            train_df.to_csv(os.path.join(PREPROCESSED_DIR_STOCK, "train", f"{file_name}.csv"), index=False)
+            val_df.to_csv(os.path.join(PREPROCESSED_DIR_STOCK, "val", f"{file_name}.csv"), index=False)
+            test_df.to_csv(os.path.join(PREPROCESSED_DIR_STOCK, "test", f"{file_name}.csv"), index=False)
             print(f"{name} Stock Preprocessed")
 
 
