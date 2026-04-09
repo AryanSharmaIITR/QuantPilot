@@ -103,3 +103,7 @@ PREPROCESSED_DIR_NSE = "./data/preprocessed/market_data"
 PREPROCESSED_DIR_STOCK = "./data/preprocessed/stock_data"
 
 timeperiod="3y"
+
+DIM = 18
+NSE_INDICES = len(nse_tickers)
+STOCK_INDICES = len(stocks_tickers)
