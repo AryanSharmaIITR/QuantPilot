@@ -293,7 +293,7 @@ QuantPilot/
 # Installation
 
 ```bash
-git clone https://github.com/your-username/QuantPilot.git
+git clone https://github.com/AryanSharmaIITR/QuantPilot.git
 
 cd QuantPilot
 
