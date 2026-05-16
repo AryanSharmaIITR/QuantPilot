@@ -789,6 +789,7 @@ class MarketPipeline:
             pass
 
 
-testing=MarketPipeline(name="Try")
+testing=MarketPipeline(name="final_market_pipeline", nn_epochs=100, transformer_epochs=300)
 testing.fit(train_loader,val_loader)
 testing.evaluate(test_loader,split="test")
+testing.save()
