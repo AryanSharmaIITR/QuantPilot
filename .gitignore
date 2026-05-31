@@ -209,3 +209,6 @@ data/
 notebook/test3.ipynb
 private/
 Data_For_Prediction/
+
+# QuantPilot web app
+APP/logs/

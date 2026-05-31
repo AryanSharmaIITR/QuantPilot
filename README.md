@@ -274,16 +274,23 @@ QuantPilot/
 |      └── training_curves.png
 │
 ├── signals/
-|   ├── init.py
-│   ├── dataIngestion.py
-│   ├── dataPreprocessing.py
-│   ├── loadData.py
-│   ├── models.py
-│   ├── training.py
-│   ├── results.py
+|   ├── __init__.py
+│   ├── config.py            # loads config.yaml, resolves paths
+│   ├── logger.py            # structured logging
+│   ├── data.py              # ticker universe + config-derived constants
+│   ├── dataIngestion.py     # Stage 1: yfinance download (train/predict modes)
+│   ├── dataPreprocessing.py # Stage 2: feature engineering (train/predict modes)
+│   ├── loadData.py          # sequence Dataset + dataloaders
+│   ├── models.py            # transformer / aggregator / fusion / head
+│   ├── training.py          # Stage 3: train + evaluate (run_training)
+│   ├── results.py           # Stage 4: inference (Predictor / run_prediction)
+│   ├── pipeline.py          # CLI orchestrator (entry point)
 │   └── stack_stock_data.py
 │
+├── config.yaml              # central pipeline configuration
 ├── requirements.txt
+├── .github/workflows/
+│   └── pipeline.yml         # scheduled inference automation
 │
 └── README.md
 ```
@@ -302,27 +309,76 @@ pip install -r requirements.txt
 
 ---
 
-# Data Ingestion
+# Configuration
 
-```bash
-python src/dataIngestion.py
-```
-
----
-
-# Data Preprocessing
-
-```bash
-python src/dataPreprocessing.py
-```
+All pipeline behaviour is driven by a single [config.yaml](config.yaml) at the
+project root — ticker windows, filesystem paths, train/val/test splits, model
+hyperparameters, and the inference checkpoint. Paths are auto-resolved relative
+to the project root, so commands work from any directory. Point at an alternate
+config with the `QUANTPILOT_CONFIG` environment variable.
 
 ---
 
-# Training
+# Usage
+
+The pipeline is orchestrated through a single CLI entry point,
+[signals/pipeline.py](signals/pipeline.py). Run every command from the project
+root.
 
 ```bash
-python src/training.py
+# Full training pipeline: ingest (3y) -> feature engineering -> train -> evaluate
+python signals/pipeline.py train-pipeline
+
+# Daily inference pipeline: ingest (1mo) -> feature engineering -> predict
+python signals/pipeline.py predict-pipeline
 ```
+
+Individual stages can also be run on their own:
+
+```bash
+python signals/pipeline.py ingest --mode train      # or --mode predict
+python signals/pipeline.py preprocess --mode train  # or --mode predict
+python signals/pipeline.py train
+python signals/pipeline.py predict
+```
+
+Predictions are written to `predictions.csv` (stock, ticker, as-of date,
+up-probability, and an UP/DOWN signal).
+
+---
+
+# Web App
+
+A FastAPI control panel ([APP/](APP/)) provides a browser UI to manage the
+instrument universe, run pipeline stages as background jobs (with live logs), and
+view predictions.
+
+```bash
+python APP/run.py              # http://127.0.0.1:8000  (API docs at /docs)
+# or: uvicorn APP.main:app --reload
+```
+
+- **Stocks** — add/remove stocks & market indices (name + ticker); persisted to
+  `tickers.json`, which the pipeline reads.
+- **Pipeline** — trigger `ingest` / `preprocess` / `train` / `predict` (or the full
+  pipelines) and watch the job log stream.
+- **Predictions** — view the latest signals as a table.
+
+> Changing the instrument universe alters the model's input size — retrain before
+> predicting. See [APP/README.md](APP/README.md) for details.
+
+---
+
+# Automation
+
+A scheduled GitHub Actions workflow
+([.github/workflows/pipeline.yml](.github/workflows/pipeline.yml)) runs the
+inference pipeline every weekday after market close. It regenerates the
+short-window prediction data and runs against the git-tracked NN checkpoint
+(`artifacts/final_market_pipeline_nn_model.pth`), so no GPU or retraining is
+needed in CI. The resulting `predictions.csv` is uploaded as a build artifact
+(committing it back to the repo is available as an opt-in step). A manual
+`workflow_dispatch` run can trigger the full training pipeline instead.
 
 ---
 

@@ -1,4 +1,25 @@
-stocks_tickers={
+"""Domain definitions and config-derived constants for QuantPilot.
+
+The ticker universe and category maps live here as code (they are domain data,
+not tunable config). Everything else — paths, windows, dimensions — is pulled
+from ``config.yaml`` via :mod:`config`, but re-exported under the original
+constant names so the rest of the package keeps importing them unchanged.
+"""
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+from config import CONFIG, ROOT_DIR
+
+# ---------------------------------------------------------------------------
+# Ticker universe (domain data)
+# ---------------------------------------------------------------------------
+# These dicts are the built-in defaults. If a ``tickers.json`` registry exists at
+# the project root (managed by the web app), it overrides these — letting the
+# instrument universe be edited without code changes. Order is preserved and
+# defines the category indices, so it must stay stable for a trained model.
+DEFAULT_STOCKS = {
     "Reliance Industries": "RELIANCE.NS",
     "Tata Consultancy Services": "TCS.NS",
     "Infosys": "INFY.NS",
@@ -27,10 +48,10 @@ stocks_tickers={
     "Power Grid Corporation": "POWERGRID.NS",
     "NTPC": "NTPC.NS",
     "Adani Enterprises": "ADANIENT.NS",
-    "Adani Ports": "ADANIPORTS.NS"
+    "Adani Ports": "ADANIPORTS.NS",
 }
 
-nse_tickers={
+DEFAULT_NSE = {
     # Broad Market Indices (Most commonly tracked)
     "NIFTY 50": "^NSEI",
     "BSE Sensex": "^BSESN",
@@ -41,69 +62,73 @@ nse_tickers={
     "NIFTY 100": "^CNX100",
     "NIFTY 200": "^CNX200",
     "NIFTY 500": "^CRSLDX",
-    # Exchange 
+    # Exchange
     "Gold Futures": "GC=F",
     "USDINR": "USDINR=X",
     "Crude Oil Futures": "CL=F",
 }
 
-stocks_cat={
-    "Reliance Industries": 0,
-    "Tata Consultancy Services": 1,
-    "Infosys": 2,
-    "HDFC Bank": 3,
-    "ICICI Bank": 4,
-    "State Bank of India": 5,
-    "Kotak Mahindra Bank": 6,
-    "Axis Bank": 7,
-    "Hindustan Unilever": 8,
-    "ITC": 9,
-    "Larsen & Toubro": 10,
-    "Asian Paints": 11,
-    "Bajaj Finance": 12,
-    "Bajaj Finserv": 13,
-    "Maruti Suzuki": 14,
-    "Mahindra & Mahindra": 15,
-    "Sun Pharma": 16,
-    "Dr Reddy's Laboratories": 17,
-    "Cipla": 18,
-    "Wipro": 19,
-    "HCL Technologies": 20,
-    "Tech Mahindra": 21,
-    "UltraTech Cement": 22,
-    "Tata Steel": 23,
-    "JSW Steel": 24,
-    "Power Grid Corporation": 25,
-    "NTPC": 26,
-    "Adani Enterprises": 27,
-    "Adani Ports": 28
-}
+# ---------------------------------------------------------------------------
+# Active universe — loaded from the registry file if present, else defaults.
+# ---------------------------------------------------------------------------
+TICKERS_PATH = Path(ROOT_DIR) / "tickers.json"
 
 
-nse_cat={
-    # Broad Market Indices (Most commonly tracked)
-    "NIFTY 50": 0,
-    "BSE Sensex": 1,
-    "NIFTY BANK": 2,
-    "INDIA VIX": 3,
-    "NIFTY NEXT 50": 4,
-    # Nifty Broad Market
-    "NIFTY 100": 5,
-    "NIFTY 200": 6,
-    "NIFTY 500": 7,
-    # Exchange 
-    "Gold Futures": 8,
-    "USDINR": 9,
-    "Crude Oil Futures": 10,
-}
-RAW_DIR_NSE = "./data/raw/market_data"
-RAW_DIR_STOCK = "./data/raw/stock_data"
+def load_universe() -> tuple[dict[str, str], dict[str, str]]:
+    """Return (stocks, market) ticker maps from tickers.json, or the defaults."""
+    if TICKERS_PATH.exists():
+        try:
+            with open(TICKERS_PATH, "r") as f:
+                reg = json.load(f)
+            stocks = reg.get("stocks") or dict(DEFAULT_STOCKS)
+            market = reg.get("market") or dict(DEFAULT_NSE)
+            if stocks and market:
+                return dict(stocks), dict(market)
+        except (json.JSONDecodeError, OSError):
+            pass  # fall back to defaults on a malformed/unreadable registry
+    return dict(DEFAULT_STOCKS), dict(DEFAULT_NSE)
 
-PREPROCESSED_DIR_NSE = "./data/preprocessed/market_data"
-PREPROCESSED_DIR_STOCK = "./data/preprocessed/stock_data"
 
-timeperiod="3y"
+stocks_tickers, nse_tickers = load_universe()
 
-DIM = 18
+# Category indices (stable ordering — must match the trained model).
+stocks_cat = {name: idx for idx, name in enumerate(stocks_tickers)}
+nse_cat = {name: idx for idx, name in enumerate(nse_tickers)}
+
+# ---------------------------------------------------------------------------
+# Config-derived constants (sourced from config.yaml)
+# ---------------------------------------------------------------------------
+_paths = CONFIG["paths"]
+_data = CONFIG["data"]
+
+# Training data directories
+RAW_DIR_NSE = _paths["raw_market"]
+RAW_DIR_STOCK = _paths["raw_stock"]
+PREPROCESSED_DIR_NSE = _paths["preprocessed_market"]
+PREPROCESSED_DIR_STOCK = _paths["preprocessed_stock"]
+
+# Live-prediction data directories
+PREDICT_RAW_DIR_NSE = _paths["predict_raw_market"]
+PREDICT_RAW_DIR_STOCK = _paths["predict_raw_stock"]
+PREDICT_PREPROCESSED_DIR_NSE = _paths["predict_preprocessed_market"]
+PREDICT_PREPROCESSED_DIR_STOCK = _paths["predict_preprocessed_stock"]
+
+ARTIFACTS_DIR = _paths["artifacts"]
+PREDICTIONS_PATH = _paths["predictions"]
+
+# Windows / dimensions
+timeperiod = _data["train_timeperiod"]
+PREDICT_TIMEPERIOD = _data["predict_timeperiod"]
+SEQUENCE_LENGTH = _data["sequence_length"]
+DIM = _data["dim"]
+
+TRAIN_SPLIT = _data["splits"]["train"]
+VAL_SPLIT = _data["splits"]["val"]
+
 NSE_INDICES = len(nse_tickers)
 STOCK_INDICES = len(stocks_tickers)
+
+
+def sanitize(name: str) -> str:
+    """Convert a human ticker name into the canonical CSV filename stem."""
+    return name.lower().replace(" ", "").replace(":", "_").replace("/", "_")

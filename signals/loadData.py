@@ -4,6 +4,10 @@ import torch
 import numpy as np
 
 from data import stocks_cat, nse_cat, PREPROCESSED_DIR_NSE, PREPROCESSED_DIR_STOCK
+from data import SEQUENCE_LENGTH, sanitize
+from logger import get_logger
+
+log = get_logger("loaddata")
 
 class dataset(Dataset):
     def __init__(self, market_dataset_path, stock_dataset_path, sequence_length=14):
@@ -136,31 +140,22 @@ class dataset(Dataset):
         return market_data, stock_data, market_target_data, stock_target_data ,target
     
 
-def get_dataloader(market_dataset_paths=PREPROCESSED_DIR_NSE, stock_dataset_paths=PREPROCESSED_DIR_STOCK, batch_size=32, sequence_length=14):
+def get_dataloader(market_dataset_paths=PREPROCESSED_DIR_NSE, stock_dataset_paths=PREPROCESSED_DIR_STOCK, batch_size=32, sequence_length=SEQUENCE_LENGTH):
 
     market_train_dataset_path = []
-    market_test_dataset_path = []  
+    market_test_dataset_path = []
     market_val_dataset_path = []
     for name in nse_cat.keys():
-        print(f"{name},")
-        name = name.lower()
-        name = name.replace(" ", "")
-        name = name.replace(":", "_")
-        name = name.replace("/", "_")
-    
+        name = sanitize(name)
         market_train_dataset_path.append(f"{market_dataset_paths}/train/{name}.csv")
         market_test_dataset_path.append(f"{market_dataset_paths}/test/{name}.csv")
         market_val_dataset_path.append(f"{market_dataset_paths}/val/{name}.csv")
 
     stock_train_dataset_path = []
-    stock_test_dataset_path = []  
+    stock_test_dataset_path = []
     stock_val_dataset_path = []
     for name in stocks_cat.keys():
-        print(f"{name},")
-        name = name.lower()
-        name = name.replace(" ", "")
-        name = name.replace(":", "_")
-        name = name.replace("/", "_")
+        name = sanitize(name)
         stock_train_dataset_path.append(f"{stock_dataset_paths}/train/{name}.csv")
         stock_test_dataset_path.append(f"{stock_dataset_paths}/test/{name}.csv")
         stock_val_dataset_path.append(f"{stock_dataset_paths}/val/{name}.csv")
@@ -169,9 +164,9 @@ def get_dataloader(market_dataset_paths=PREPROCESSED_DIR_NSE, stock_dataset_path
     test_dataset = dataset(market_test_dataset_path, stock_test_dataset_path,sequence_length)
     val_dataset = dataset(market_val_dataset_path, stock_val_dataset_path,sequence_length)
 
-    print(f"Train: {len(train_dataset)} samples")
-    print(f"Validation: {len(val_dataset)} samples") 
-    print(f"Test: {len(test_dataset)} samples")
+    log.info("Train: %d samples", len(train_dataset))
+    log.info("Validation: %d samples", len(val_dataset))
+    log.info("Test: %d samples", len(test_dataset))
 
     train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
     val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)

@@ -1,0 +1,123 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>QuantPilot — Control Panel</title>
+  <link rel="stylesheet" href="/static/style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">◤</span>
+      <div>
+        <h1>QuantPilot</h1>
+        <p class="tagline">Quant ML pipeline control panel</p>
+      </div>
+    </div>
+    <div id="busy-pill" class="pill pill-idle">● idle</div>
+  </header>
+
+  <nav class="tabs">
+    <button class="tab active" data-tab="dashboard">Dashboard</button>
+    <button class="tab" data-tab="stocks">Stocks</button>
+    <button class="tab" data-tab="pipeline">Pipeline</button>
+    <button class="tab" data-tab="predictions">Predictions</button>
+  </nav>
+
+  <main>
+    <!-- DASHBOARD -->
+    <section id="dashboard" class="panel active">
+      <div class="cards" id="status-cards"></div>
+    </section>
+
+    <!-- STOCKS -->
+    <section id="stocks" class="panel">
+      <div class="note">
+        Adding or removing instruments rewrites <code>tickers.json</code> and changes
+        what the pipeline ingests &amp; trains on. Changing the universe alters the
+        model's input size — <strong>retrain before predicting</strong> or inference
+        will fail with a dimension mismatch.
+      </div>
+
+      <form id="add-form" class="add-form">
+        <select id="add-kind">
+          <option value="stocks">Stock</option>
+          <option value="market">Market index</option>
+        </select>
+        <input id="add-name" type="text" placeholder="Name (e.g. Tata Motors)" required />
+        <input id="add-ticker" type="text" placeholder="Ticker (e.g. TATAMOTORS.NS)" required />
+        <button type="submit" class="btn btn-primary">Add</button>
+        <button type="button" id="reset-btn" class="btn btn-ghost">Reset to defaults</button>
+      </form>
+      <div id="add-error" class="error-msg"></div>
+
+      <div class="two-col">
+        <div>
+          <h3>Stocks (<span id="stocks-count">0</span>)</h3>
+          <table class="data-table"><thead><tr><th>#</th><th>Name</th><th>Ticker</th><th></th></tr></thead>
+            <tbody id="stocks-tbody"></tbody></table>
+        </div>
+        <div>
+          <h3>Market indices (<span id="market-count">0</span>)</h3>
+          <table class="data-table"><thead><tr><th>#</th><th>Name</th><th>Ticker</th><th></th></tr></thead>
+            <tbody id="market-tbody"></tbody></table>
+        </div>
+      </div>
+    </section>
+
+    <!-- PIPELINE -->
+    <section id="pipeline" class="panel">
+      <div class="note">Only one pipeline job runs at a time (stages share data directories).</div>
+
+      <div class="pipeline-groups">
+        <div class="pgroup">
+          <h3>Full pipelines</h3>
+          <button class="btn btn-primary" data-stage="predict-pipeline">▶ Predict pipeline <small>ingest→features→predict</small></button>
+          <button class="btn btn-warn" data-stage="train-pipeline">▶ Train pipeline <small>ingest→features→train (slow)</small></button>
+        </div>
+        <div class="pgroup">
+          <h3>Individual stages</h3>
+          <div class="stage-row">
+            <button class="btn" data-stage="ingest" data-mode="train">Ingest (train)</button>
+            <button class="btn" data-stage="ingest" data-mode="predict">Ingest (predict)</button>
+          </div>
+          <div class="stage-row">
+            <button class="btn" data-stage="preprocess" data-mode="train">Preprocess (train)</button>
+            <button class="btn" data-stage="preprocess" data-mode="predict">Preprocess (predict)</button>
+          </div>
+          <div class="stage-row">
+            <button class="btn" data-stage="train">Train</button>
+            <button class="btn" data-stage="predict">Predict</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="job-area">
+        <div class="job-header">
+          <h3>Jobs</h3>
+          <span id="active-job-label" class="muted"></span>
+        </div>
+        <table class="data-table"><thead><tr><th>Stage</th><th>Status</th><th>Started</th><th></th></tr></thead>
+          <tbody id="jobs-tbody"></tbody></table>
+        <h4>Log <span id="log-job-id" class="muted"></span></h4>
+        <pre id="job-log" class="log-box">Select a job to view its log…</pre>
+      </div>
+    </section>
+
+    <!-- PREDICTIONS -->
+    <section id="predictions" class="panel">
+      <div class="pred-toolbar">
+        <button id="refresh-pred" class="btn">↻ Refresh</button>
+        <button id="run-pred" class="btn btn-primary">▶ Run predict pipeline</button>
+        <span id="pred-meta" class="muted"></span>
+      </div>
+      <table class="data-table"><thead>
+        <tr><th>#</th><th>Stock</th><th>Ticker</th><th>Up prob.</th><th>Signal</th></tr></thead>
+        <tbody id="pred-tbody"></tbody></table>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

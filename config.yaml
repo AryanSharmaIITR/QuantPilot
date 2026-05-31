@@ -1,0 +1,88 @@
+# =============================================================================
+# QuantPilot — central pipeline configuration
+# -----------------------------------------------------------------------------
+# Every stage (ingest -> preprocess -> train -> predict) reads from this file.
+# Paths are resolved relative to the project root (the directory containing this
+# file), so the pipeline behaves identically regardless of the working dir.
+#
+# Override the config location with the QUANTPILOT_CONFIG environment variable.
+# =============================================================================
+
+project:
+  name: final_market_pipeline   # prefix used for all saved model artifacts
+  seed: 42
+
+# --- Data windows & sequence construction ------------------------------------
+data:
+  train_timeperiod: "3y"        # yfinance history window for training data
+  predict_timeperiod: "1mo"     # shorter window used by the live prediction run
+  sequence_length: 14           # lookback window fed to the transformers
+  dim: 18                       # per-timestep feature dimension (do not change lightly)
+  splits:
+    train: 0.70                 # 0.00 -> 0.70 train
+    val: 0.85                   # 0.70 -> 0.85 val, 0.85 -> 1.00 test
+
+# --- Filesystem layout (relative to project root, auto-resolved to absolute) --
+paths:
+  # Training data
+  raw_market: "data/raw/market_data"
+  raw_stock: "data/raw/stock_data"
+  preprocessed_market: "data/preprocessed/market_data"
+  preprocessed_stock: "data/preprocessed/stock_data"
+  # Live-prediction data (short window, no train/val/test split)
+  predict_raw_market: "Data_For_Prediction/market_data"
+  predict_raw_stock: "Data_For_Prediction/stock_data"
+  predict_preprocessed_market: "Data_For_Prediction/preprocessed_market_data"
+  predict_preprocessed_stock: "Data_For_Prediction/preprocessed_stock_data"
+  # Outputs
+  artifacts: "artifacts"
+  predictions: "predictions.csv"
+
+# --- Data ingestion (yfinance) -----------------------------------------------
+ingestion:
+  max_retries: 3                # retries per ticker on transient download errors
+  retry_delay_seconds: 5        # base delay; backs off linearly per attempt
+
+# --- Inference -----------------------------------------------------------------
+inference:
+  # Checkpoint consumed by the prediction run. The default is the combined NN
+  # checkpoint produced by training (pretrain_nn / save) and is git-tracked.
+  nn_checkpoint: "artifacts/final_market_pipeline_nn_model.pth"
+  threshold: 0.5                # sigmoid threshold for the up/down decision
+
+# --- Transformer pretraining (Phase 1) ---------------------------------------
+transformer:
+  d_model: 128
+  nhead: 8
+  num_layers: 3
+  dim_feedforward: 256
+  dropout: 0.1
+  epochs: 300
+  lr: 1.0e-4
+  weight_decay: 1.0e-5
+  grad_clip: 1.0
+
+# --- NN surrogate pretraining (Phase 2) --------------------------------------
+nn:
+  epochs: 100
+  lr: 1.0e-3
+  batch_size: 32
+  grad_clip: 1.0
+
+# --- XGBoost (Phase 3) -------------------------------------------------------
+xgboost:
+  use_optuna: false
+  optuna_trials: 50
+  cv_folds: 5
+  params:
+    max_depth: 6
+    learning_rate: 0.05
+    n_estimators: 300
+    subsample: 0.8
+    colsample_bytree: 0.8
+    tree_method: hist
+    seed: 42
+
+# --- Logging ------------------------------------------------------------------
+logging:
+  level: INFO                   # DEBUG | INFO | WARNING | ERROR

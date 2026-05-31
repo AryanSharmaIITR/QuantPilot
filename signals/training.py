@@ -1,4 +1,5 @@
 import math
+import os
 from sklearn.metrics import roc_auc_score,accuracy_score, precision_score, recall_score, f1_score, classification_report
 import xgboost as xgb
 import optuna
@@ -15,9 +16,12 @@ from tqdm import tqdm
 
 from models import TimeSeriesTransformer, MarketAggregator, PositionalEncoding, FusionV2, SurrogateHead
 from loadData import get_dataloader
-from data import PREPROCESSED_DIR_NSE, PREPROCESSED_DIR_STOCK,DIM,NSE_INDICES,STOCK_INDICES
+from data import PREPROCESSED_DIR_NSE, PREPROCESSED_DIR_STOCK, ARTIFACTS_DIR
+from data import DIM, NSE_INDICES, STOCK_INDICES, SEQUENCE_LENGTH
+from config import CONFIG
+from logger import get_logger
 
-train_loader, val_loader, test_loader = get_dataloader(PREPROCESSED_DIR_NSE, PREPROCESSED_DIR_STOCK, batch_size=32, sequence_length=14)
+log = get_logger("train")
 
 # input_dim = 18
 # num_indices = 11
@@ -26,23 +30,33 @@ class MarketPipeline:
     def __init__(
         self,
         dim: int = DIM,
-        lr: float = 1e-3,
-        name: str = "market_pipeline",
-        nn_epochs: int = 100,
-        transformer_epochs: int = 300,
-        transformer_weight_decay: float = 1e-5,
-        transformer_lr: float = 1e-4,
+        lr: float | None = None,
+        name: str | None = None,
+        nn_epochs: int | None = None,
+        transformer_epochs: int | None = None,
+        transformer_weight_decay: float | None = None,
+        transformer_lr: float | None = None,
         device: str | None = None,
         xgb_params: dict | None = None,
     ):
+        tcfg = CONFIG["transformer"]
+        ncfg = CONFIG["nn"]
+        xcfg = CONFIG["xgboost"]
+
         self.dim = dim
         self.device = torch.device(device if device else ("cuda" if torch.cuda.is_available() else "cpu"))
-        self.lr = lr
-        self.name = name
-        self.transformer_weight_decay = transformer_weight_decay
-        self.transformer_lr = transformer_lr
-        self.transformer_epochs = transformer_epochs
-        self.nn_epochs = nn_epochs
+        self.lr = lr if lr is not None else ncfg["lr"]
+        self.name = name if name is not None else CONFIG["project"]["name"]
+        self.transformer_weight_decay = (
+            transformer_weight_decay if transformer_weight_decay is not None else tcfg["weight_decay"]
+        )
+        self.transformer_lr = transformer_lr if transformer_lr is not None else tcfg["lr"]
+        self.transformer_epochs = transformer_epochs if transformer_epochs is not None else tcfg["epochs"]
+        self.nn_epochs = nn_epochs if nn_epochs is not None else ncfg["epochs"]
+        self.grad_clip = tcfg["grad_clip"]
+        self.nn_grad_clip = ncfg["grad_clip"]
+        self.artifacts_dir = ARTIFACTS_DIR
+        os.makedirs(self.artifacts_dir, exist_ok=True)
 
         # Build NN modules
         self.aggregator = MarketAggregator(dim).to(self.device)
@@ -52,30 +66,28 @@ class MarketPipeline:
         # XGBoost params
         self.xgb_params = xgb_params or {
             "objective": "reg:squarederror",
-            "max_depth": 6,
-            "learning_rate": 0.05,
-            "n_estimators": 300,
-            "subsample": 0.8,
-            "colsample_bytree": 0.8,
-            "tree_method": "hist",
-            "seed": 42,
+            **xcfg["params"],
         }
         self.xgb_model = None
 
         # Create transformer models
         self.market_model = TimeSeriesTransformer(
             input_dim=dim,
-            d_model=128,
-            nhead=8,
-            num_layers=3,
+            d_model=tcfg["d_model"],
+            nhead=tcfg["nhead"],
+            num_layers=tcfg["num_layers"],
+            dim_feedforward=tcfg["dim_feedforward"],
+            dropout=tcfg["dropout"],
             num_market_indices=NSE_INDICES
         ).to(self.device)
 
         self.stock_model = TimeSeriesTransformer(
             input_dim=dim,
-            d_model=128,
-            nhead=8,
-            num_layers=3,
+            d_model=tcfg["d_model"],
+            nhead=tcfg["nhead"],
+            num_layers=tcfg["num_layers"],
+            dim_feedforward=tcfg["dim_feedforward"],
+            dropout=tcfg["dropout"],
             num_market_indices=STOCK_INDICES
         ).to(self.device)
 
@@ -133,7 +145,8 @@ class MarketPipeline:
         return features.cpu().numpy().reshape(B * STOCK_INDICES, -1)  # -1 automatically gets 270
     
     # ── Phase 1: TimeSeriesTransformer pre-training ──────────────
-    def pretrain_transformers(self, train_loader: DataLoader, val_loader: DataLoader) -> None:
+    def pretrain_transformers(self, train_loader: DataLoader, val_loader: DataLoader,
+                              test_loader: DataLoader | None = None) -> None:
         # Use smaller learning rate
         optimizer_market = torch.optim.Adam(self.market_model.parameters(), lr=self.transformer_lr, weight_decay=self.transformer_weight_decay)
         optimizer_stock = torch.optim.Adam(self.stock_model.parameters(), lr=self.transformer_lr, weight_decay=self.transformer_weight_decay)
@@ -174,15 +187,15 @@ class MarketPipeline:
                 market_output = self.market_model(market_data)
                 market_loss = criterion(market_output, market_target)
                 market_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.market_model.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(self.market_model.parameters(), max_norm=self.grad_clip)
                 optimizer_market.step()
-                
+
                 # Train Stock Model
                 optimizer_stock.zero_grad()
                 stock_output = self.stock_model(stock_data)
                 stock_loss = criterion(stock_output, stock_target)
                 stock_loss.backward()
-                torch.nn.utils.clip_grad_norm_(self.stock_model.parameters(), max_norm=1.0)
+                torch.nn.utils.clip_grad_norm_(self.stock_model.parameters(), max_norm=self.grad_clip)
                 optimizer_stock.step()
                 
                 train_market_loss += market_loss.item()
@@ -240,13 +253,13 @@ class MarketPipeline:
             # Save best models
             if avg_val_market < best_market_loss:
                 best_market_loss = avg_val_market
-                torch.save(self.market_model.state_dict(), f'./artifacts/{self.name}_market_model.pth')
-                print(f"  ✓ Saved best market model (val_loss: {avg_val_market:.6f})")
-            
+                torch.save(self.market_model.state_dict(), os.path.join(self.artifacts_dir, f'{self.name}_market_model.pth'))
+                log.info("Saved best market model (val_loss: %.6f)", avg_val_market)
+
             if avg_val_stock < best_stock_loss:
                 best_stock_loss = avg_val_stock
-                torch.save(self.stock_model.state_dict(), f'./artifacts/{self.name}_stock_model.pth')
-                print(f"  ✓ Saved best stock model (val_loss: {avg_val_stock:.6f})")
+                torch.save(self.stock_model.state_dict(), os.path.join(self.artifacts_dir, f'{self.name}_stock_model.pth'))
+                log.info("Saved best stock model (val_loss: %.6f)", avg_val_stock)
             
             # Print epoch summary
             if (epoch + 1) % 10 == 0 or epoch == 0:
@@ -258,43 +271,37 @@ class MarketPipeline:
         
         self.market_model.eval()
         self.stock_model.eval()
-        
-        test_market_losses=[]
-        test_stock_losses=[]
-        test_market_loss = 0
-        test_stock_loss = 0
-        
-        with torch.no_grad():
-            for market_data, stock_data, market_target, stock_target, target in test_loader:
-                market_data = market_data.to(self.device)
-                stock_data = stock_data.to(self.device)
-                market_target = market_target.to(self.device)
-                stock_target = stock_target.to(self.device)
-                target = target.to(self.device)
 
-                market_output = self.market_model(market_data)
-                stock_output = self.stock_model(stock_data)
-                
-                market_loss = criterion(market_output, market_target)
-                stock_loss = criterion(stock_output, stock_target)
-                
-                test_market_loss += market_loss.item()
-                test_stock_loss += stock_loss.item()
-                
-        
-        avg_test_market = test_market_loss / len(test_loader)
-        avg_test_stock = test_stock_loss / len(test_loader)
-        test_market_losses.append(avg_test_market)
-        test_stock_losses.append(avg_test_stock)
-        
+        log.info("Transformer pretraining completed!")
 
-        print("\nTraining completed!\n")
-        print("=" * 60)
-        print(f"\nTest Market Loss: {avg_test_market:.6f}")
-        print(f"Test Stock Loss: {avg_test_stock:.6f}")
+        if test_loader is not None:
+            test_market_loss = 0
+            test_stock_loss = 0
 
-        self.market_model.load_state_dict(torch.load(f'./artifacts/{self.name}_market_model.pth', map_location=self.device))    
-        self.stock_model.load_state_dict(torch.load(f'./artifacts/{self.name}_stock_model.pth', map_location=self.device)) 
+            with torch.no_grad():
+                for market_data, stock_data, market_target, stock_target, target in test_loader:
+                    market_data = market_data.to(self.device)
+                    stock_data = stock_data.to(self.device)
+                    market_target = market_target.to(self.device)
+                    stock_target = stock_target.to(self.device)
+                    target = target.to(self.device)
+
+                    market_output = self.market_model(market_data)
+                    stock_output = self.stock_model(stock_data)
+
+                    market_loss = criterion(market_output, market_target)
+                    stock_loss = criterion(stock_output, stock_target)
+
+                    test_market_loss += market_loss.item()
+                    test_stock_loss += stock_loss.item()
+
+            avg_test_market = test_market_loss / len(test_loader)
+            avg_test_stock = test_stock_loss / len(test_loader)
+            log.info("Test Market Loss: %.6f | Test Stock Loss: %.6f",
+                     avg_test_market, avg_test_stock)
+
+        self.market_model.load_state_dict(torch.load(os.path.join(self.artifacts_dir, f'{self.name}_market_model.pth'), map_location=self.device))
+        self.stock_model.load_state_dict(torch.load(os.path.join(self.artifacts_dir, f'{self.name}_stock_model.pth'), map_location=self.device))
      
     # ── Phase 2: NN pre-training ──────────────
     def pretrain_nn(self, train_loader: DataLoader, val_loader: DataLoader) -> None:
@@ -372,7 +379,7 @@ class MarketPipeline:
                     list(self.aggregator.parameters()) +
                     list(self.fusion.parameters()) +
                     list(self.head.parameters()),
-                    max_norm=1.0
+                    max_norm=self.nn_grad_clip
                 )
                 optimizer.step()
 
@@ -447,9 +454,9 @@ class MarketPipeline:
                     'head': self.head.state_dict(),
                     'market_model': self.market_model.state_dict(),
                     'stock_model': self.stock_model.state_dict(),
-                }, f'./artifacts/{self.name}_nn_model.pth')
+                }, os.path.join(self.artifacts_dir, f'{self.name}_nn_model.pth'))
 
-                print(f"  ✓ Saved best NN model (val_loss: {avg_val:.6f})")
+                log.info("Saved best NN model (val_loss: %.6f)", avg_val)
 
             # Logging
             if (epoch + 1) % 10 == 0 or epoch == 0:
@@ -462,7 +469,7 @@ class MarketPipeline:
         print("\nNN pretraining completed!\n")
 
         # Load best model
-        checkpoint = torch.load(f'./artifacts/{self.name}_nn_model.pth', map_location=self.device)
+        checkpoint = torch.load(os.path.join(self.artifacts_dir, f'{self.name}_nn_model.pth'), map_location=self.device)
         self.aggregator.load_state_dict(checkpoint['aggregator'])
         self.fusion.load_state_dict(checkpoint['fusion'])
         self.head.load_state_dict(checkpoint['head'])
@@ -519,18 +526,20 @@ class MarketPipeline:
         print("  XGBoost training complete.")
 
     # ── Full pipeline ─────────────────────────
-    def fit(self, train_loader: DataLoader, val_loader: DataLoader | None = None, 
+    def fit(self, train_loader: DataLoader, val_loader: DataLoader | None = None,
+            test_loader: DataLoader | None = None,
             use_optuna: bool = False, n_trials: int = 50):
         """
         Full pipeline: pre-train NN → fit XGBoost with Optuna → optional validation.
-        
+
         Args:
             train_loader: Training data loader
             val_loader: Validation data loader (optional)
+            test_loader: Test data loader for transformer test-loss reporting (optional)
             use_optuna: Whether to use Optuna for hyperparameter optimization
             n_trials: Number of Optuna trials (if use_optuna=True)
         """
-        self.pretrain_transformers(train_loader, val_loader)
+        self.pretrain_transformers(train_loader, val_loader, test_loader)
         self.pretrain_nn(train_loader,val_loader)
         
         if use_optuna:
@@ -600,20 +609,24 @@ class MarketPipeline:
         }
 
     # ── Persistence ──────────────────────────
-    def save(self, path_prefix: str = "market_pipeline"):
+    def save(self, path_prefix: str | None = None):
         """Save NN weights and XGBoost model."""
+        path_prefix = path_prefix or self.name
+        nn_path = os.path.join(self.artifacts_dir, f"{path_prefix}_nn.pt")
         torch.save({
             "aggregator": self.aggregator.state_dict(),
             "fusion":     self.fusion.state_dict(),
             "head":       self.head.state_dict(),
             "market_model": self.market_model.state_dict(),
             "stock_model": self.stock_model.state_dict(),
-        }, f"./artifacts/{path_prefix}_nn.pt")
+        }, nn_path)
 
         if self.xgb_model is not None:
-            self.xgb_model.save_model(f"./artifacts/{path_prefix}_xgb.json")
-
-        print(f"  Saved to ./artifacts/{path_prefix}_nn.pt + ./artifacts/{path_prefix}_xgb.json")
+            xgb_path = os.path.join(self.artifacts_dir, f"{path_prefix}_xgb.json")
+            self.xgb_model.save_model(xgb_path)
+            log.info("Saved %s + %s", nn_path, xgb_path)
+        else:
+            log.info("Saved %s", nn_path)
 
     def load(self, path_prefix: str = "market_pipeline"):
         """Load NN weights and XGBoost model."""
@@ -789,7 +802,29 @@ class MarketPipeline:
             pass
 
 
-testing=MarketPipeline(name="final_market_pipeline", nn_epochs=100, transformer_epochs=300)
-testing.fit(train_loader,val_loader)
-testing.evaluate(test_loader,split="test")
-testing.save()
+def run_training() -> MarketPipeline:
+    """Entry point: build dataloaders, run the full pipeline, evaluate, and save.
+
+    All hyperparameters come from config.yaml. Returns the fitted pipeline.
+    """
+    xcfg = CONFIG["xgboost"]
+    batch_size = CONFIG["nn"]["batch_size"]
+
+    log.info("Building dataloaders...")
+    train_loader, val_loader, test_loader = get_dataloader(
+        PREPROCESSED_DIR_NSE, PREPROCESSED_DIR_STOCK,
+        batch_size=batch_size, sequence_length=SEQUENCE_LENGTH,
+    )
+
+    pipeline = MarketPipeline()
+    pipeline.fit(
+        train_loader, val_loader, test_loader,
+        use_optuna=xcfg["use_optuna"], n_trials=xcfg["optuna_trials"],
+    )
+    pipeline.evaluate(test_loader, split="test")
+    pipeline.save()
+    return pipeline
+
+
+if __name__ == "__main__":
+    run_training()

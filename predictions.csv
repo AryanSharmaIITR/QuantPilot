@@ -1,30 +1,30 @@
-stock_path,y_pred_label
-./Data_For_Prediction/preprocessed_stock_data/axisbank.csv,0
-./Data_For_Prediction/preprocessed_stock_data/kotakmahindrabank.csv,1
-./Data_For_Prediction/preprocessed_stock_data/relianceindustries.csv,0
-./Data_For_Prediction/preprocessed_stock_data/ultratechcement.csv,1
-./Data_For_Prediction/preprocessed_stock_data/mahindra&mahindra.csv,1
-./Data_For_Prediction/preprocessed_stock_data/sunpharma.csv,0
-./Data_For_Prediction/preprocessed_stock_data/asianpaints.csv,0
-./Data_For_Prediction/preprocessed_stock_data/larsen&toubro.csv,0
-./Data_For_Prediction/preprocessed_stock_data/wipro.csv,0
-./Data_For_Prediction/preprocessed_stock_data/powergridcorporation.csv,0
-./Data_For_Prediction/preprocessed_stock_data/infosys.csv,1
-./Data_For_Prediction/preprocessed_stock_data/tataconsultancyservices.csv,0
-./Data_For_Prediction/preprocessed_stock_data/drreddy'slaboratories.csv,1
-./Data_For_Prediction/preprocessed_stock_data/bajajfinance.csv,0
-./Data_For_Prediction/preprocessed_stock_data/ntpc.csv,0
-./Data_For_Prediction/preprocessed_stock_data/hcltechnologies.csv,1
-./Data_For_Prediction/preprocessed_stock_data/techmahindra.csv,1
-./Data_For_Prediction/preprocessed_stock_data/cipla.csv,1
-./Data_For_Prediction/preprocessed_stock_data/itc.csv,1
-./Data_For_Prediction/preprocessed_stock_data/hdfcbank.csv,1
-./Data_For_Prediction/preprocessed_stock_data/adanienterprises.csv,1
-./Data_For_Prediction/preprocessed_stock_data/tatasteel.csv,0
-./Data_For_Prediction/preprocessed_stock_data/marutisuzuki.csv,1
-./Data_For_Prediction/preprocessed_stock_data/jswsteel.csv,1
-./Data_For_Prediction/preprocessed_stock_data/icicibank.csv,0
-./Data_For_Prediction/preprocessed_stock_data/bajajfinserv.csv,0
-./Data_For_Prediction/preprocessed_stock_data/statebankofindia.csv,1
-./Data_For_Prediction/preprocessed_stock_data/adaniports.csv,1
-./Data_For_Prediction/preprocessed_stock_data/hindustanunilever.csv,1
+stock,ticker,as_of_date,up_probability,signal
+Reliance Industries,RELIANCE.NS,2026-05-15,0.0823,DOWN
+Tata Consultancy Services,TCS.NS,2026-05-15,0.3933,DOWN
+Infosys,INFY.NS,2026-05-15,0.6946,UP
+HDFC Bank,HDFCBANK.NS,2026-05-15,0.5954,UP
+ICICI Bank,ICICIBANK.NS,2026-05-15,0.4518,DOWN
+State Bank of India,SBIN.NS,2026-05-15,0.2496,DOWN
+Kotak Mahindra Bank,KOTAKBANK.NS,2026-05-15,0.9134,UP
+Axis Bank,AXISBANK.NS,2026-05-15,0.2971,DOWN
+Hindustan Unilever,HINDUNILVR.NS,2026-05-15,0.821,UP
+ITC,ITC.NS,2026-05-15,0.9618,UP
+Larsen & Toubro,LT.NS,2026-05-15,0.2603,DOWN
+Asian Paints,ASIANPAINT.NS,2026-05-15,0.2376,DOWN
+Bajaj Finance,BAJFINANCE.NS,2026-05-15,0.6484,UP
+Bajaj Finserv,BAJAJFINSV.NS,2026-05-15,0.1267,DOWN
+Maruti Suzuki,MARUTI.NS,2026-05-15,0.7552,UP
+Mahindra & Mahindra,M&M.NS,2026-05-15,0.5751,UP
+Sun Pharma,SUNPHARMA.NS,2026-05-15,0.2416,DOWN
+Dr Reddy's Laboratories,DRREDDY.NS,2026-05-15,0.9589,UP
+Cipla,CIPLA.NS,2026-05-15,0.7146,UP
+Wipro,WIPRO.NS,2026-05-15,0.1208,DOWN
+HCL Technologies,HCLTECH.NS,2026-05-15,0.6798,UP
+Tech Mahindra,TECHM.NS,2026-05-15,0.6995,UP
+UltraTech Cement,ULTRACEMCO.NS,2026-05-15,0.5316,UP
+Tata Steel,TATASTEEL.NS,2026-05-15,0.1393,DOWN
+JSW Steel,JSWSTEEL.NS,2026-05-15,0.3918,DOWN
+Power Grid Corporation,POWERGRID.NS,2026-05-15,0.1475,DOWN
+NTPC,NTPC.NS,2026-05-15,0.5263,UP
+Adani Enterprises,ADANIENT.NS,2026-05-15,0.6838,UP
+Adani Ports,ADANIPORTS.NS,2026-05-15,0.5744,UP
