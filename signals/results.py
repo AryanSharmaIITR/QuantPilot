@@ -169,6 +169,7 @@ class Predictor:
 
         as_of = ds.common_dates[-1]
         result = pd.DataFrame({
+            "Date": as_of,  # last date of the input window the prediction is based on
             "stock": list(D.stocks_cat.keys()),
             "ticker": list(D.stocks_tickers.values()),
             "as_of_date": as_of,
