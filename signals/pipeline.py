@@ -78,7 +78,7 @@ def main(argv: list[str] | None = None) -> int:
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=__doc__,
     )
-    sub = parser.add_subparsers(dest="stage", required=True)
+    sub = parser.add_subparsers(dest="stage")
 
     p_ingest = sub.add_parser("ingest", help="Download raw price data")
     p_ingest.add_argument("--mode", choices=["train", "predict"], default="train")
@@ -92,6 +92,11 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("predict-pipeline", help="ingest+preprocess+predict (predict mode)")
 
     args = parser.parse_args(argv)
+
+    # No stage given (e.g. running the file directly from an IDE) — show help.
+    if args.stage is None:
+        parser.print_help()
+        return 0
 
     start = time.monotonic()
     try:
