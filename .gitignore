@@ -212,3 +212,7 @@ Data_For_Prediction/
 
 # QuantPilot web app
 APP/logs/
+
+# Editor / CI
+.vscode/
+.github/

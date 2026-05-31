@@ -1,6 +1,33 @@
-# QuantPilot
+<div align="center">
 
-AI-powered quantitative market intelligence framework for stock movement prediction using transformer-based temporal modeling, cross-market attention mechanisms, and hybrid deep learning + gradient boosting architectures.
+# ◤ QuantPilot
+
+### AI-powered quantitative market intelligence
+
+*Transformer-based temporal modeling · cross-market attention · hybrid deep learning + gradient boosting — for directional stock-movement prediction.*
+
+![Python](https://img.shields.io/badge/Python-3.11+-3776AB?logo=python&logoColor=white)
+![PyTorch](https://img.shields.io/badge/PyTorch-EE4C2C?logo=pytorch&logoColor=white)
+![XGBoost](https://img.shields.io/badge/XGBoost-017CEE?logo=xgboost&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![Optuna](https://img.shields.io/badge/Optuna-8A2BE2?logo=optuna&logoColor=white)
+![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
+
+[Overview](#overview) · [Quickstart](#quickstart) · [Pipeline](#pipeline-architecture) · [Web App](#web-app) · [Automation](#automation)
+
+</div>
+
+---
+
+# Quickstart
+
+```bash
+git clone https://github.com/AryanSharmaIITR/QuantPilot.git && cd QuantPilot
+pip install -r requirements.txt
+
+python signals/pipeline.py predict-pipeline   # ingest → features → predict
+python APP/run.py                             # launch the web UI → http://127.0.0.1:8000
+```
 
 ---
 
@@ -242,57 +269,58 @@ The model is evaluated using:
 ```text
 QuantPilot/
 │
-├── data/
-│   ├── raw/
-|   |    ├── market_data/
-|   |    └── stock_data/
-│   └── preprocessed/
-|        ├── market_data/
-|        └── stock_data/
-|
-│
-├──Data_For_Prediction/
-|   ├── market_data/
-|   ├── stock_data/
-|   ├── preprocessed_market_data/
-|   └── preprocessed_stock_data/
-|
-├── artifacts/
-|      ├── final_market_pipeline_nn.pt
-|      ├── final_market_pipeline_market_model.pth
-|      ├── final_market_pipeline_stock_model.pth
-|      └── final_market_pipeline_xgb.json
-│
-├── notebooks/
-|      ├── datacleaning.ipynb
-|      ├── preprocessing.ipynb
-|      ├── test1.ipynb
-|      ├── test2.ipynb
-|      ├── test4.ipynb
-|      ├── test5.ipynb
-|      ├── test6.ipynb
-|      └── training_curves.png
-│
-├── signals/
-|   ├── __init__.py
-│   ├── config.py            # loads config.yaml, resolves paths
-│   ├── logger.py            # structured logging
-│   ├── data.py              # ticker universe + config-derived constants
-│   ├── dataIngestion.py     # Stage 1: yfinance download (train/predict modes)
-│   ├── dataPreprocessing.py # Stage 2: feature engineering (train/predict modes)
-│   ├── loadData.py          # sequence Dataset + dataloaders
-│   ├── models.py            # transformer / aggregator / fusion / head
-│   ├── training.py          # Stage 3: train + evaluate (run_training)
-│   ├── results.py           # Stage 4: inference (Predictor / run_prediction)
-│   ├── pipeline.py          # CLI orchestrator (entry point)
+├── 🧠 signals/                    # Core ML pipeline (the engine room)
+│   ├── __init__.py
+│   ├── config.py                 # loads config.yaml, resolves paths
+│   ├── logger.py                 # structured logging
+│   ├── data.py                   # ticker universe + config-derived constants
+│   ├── dataIngestion.py          # Stage 1 · yfinance download (train/predict)
+│   ├── dataPreprocessing.py      # Stage 2 · feature engineering (train/predict)
+│   ├── loadData.py               # sequence Dataset + dataloaders
+│   ├── models.py                 # transformer · aggregator · fusion · head
+│   ├── training.py               # Stage 3 · train + evaluate  (run_training)
+│   ├── results.py                # Stage 4 · inference          (run_prediction)
+│   ├── pipeline.py               # ⚙️  CLI orchestrator (entry point)
 │   └── stack_stock_data.py
 │
-├── config.yaml              # central pipeline configuration
-├── requirements.txt
-├── .github/workflows/
-│   └── pipeline.yml         # scheduled inference automation
+├── 🌐 APP/                        # FastAPI web control panel
+│   ├── __init__.py               # wires signals/ onto sys.path
+│   ├── main.py                   # FastAPI app + routes + static serving
+│   ├── registry.py               # tickers.json read/write (add-stocks backend)
+│   ├── jobs.py                   # subprocess pipeline runner + job tracking
+│   ├── schemas.py                # Pydantic request/response models
+│   ├── run.py                    # convenience launcher (python APP/run.py)
+│   ├── README.md
+│   ├── static/                   # vanilla SPA — no build step
+│   │   ├── index.html
+│   │   ├── style.css
+│   │   └── app.js
+│   └── logs/                     # per-job run logs (gitignored)
 │
-└── README.md
+├── 🤖 .github/workflows/
+│   └── pipeline.yml              # scheduled daily inference automation
+│
+├── 📦 data/                       # training data (gitignored)
+│   ├── raw/{market_data, stock_data}/
+│   └── preprocessed/{market_data, stock_data}/{train, val, test}/
+│
+├── 🔮 Data_For_Prediction/        # live-inference data (gitignored)
+│   ├── market_data/  ·  stock_data/
+│   └── preprocessed_market_data/  ·  preprocessed_stock_data/
+│
+├── 💾 artifacts/                  # trained model checkpoints
+│   ├── final_market_pipeline_nn_model.pth      # combined NN (used for inference)
+│   ├── final_market_pipeline_market_model.pth
+│   ├── final_market_pipeline_stock_model.pth
+│   └── final_market_pipeline_xgb.json
+│
+├── 📓 notebook/                   # research notebooks + training curves
+│
+├── ⚙️  config.yaml                # single source of truth for the whole pipeline
+├── 🎯 tickers.json               # editable instrument universe (managed by APP)
+├── 📄 predictions.csv            # latest directional signals (output)
+├── 📋 requirements.txt
+└── 📖 README.md
 ```
 
 ---
