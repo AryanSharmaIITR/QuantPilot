@@ -36,9 +36,9 @@ from logger import get_logger
 log = get_logger("pipeline")
 
 
-def _ingest(mode: str) -> None:
+def _ingest(mode: str, end_date: str | None = None) -> None:
     from dataIngestion import DataIngestion
-    DataIngestion(mode=mode).run()
+    DataIngestion(mode=mode, end_date=end_date).run()
 
 
 def _preprocess(mode: str) -> None:
@@ -51,9 +51,9 @@ def _train() -> None:
     run_training()
 
 
-def _predict() -> None:
+def _predict(target_date: str | None = None) -> None:
     from results import run_prediction
-    run_prediction()
+    run_prediction(target_date)
 
 
 def train_pipeline() -> None:
@@ -64,11 +64,13 @@ def train_pipeline() -> None:
     log.info("########## TRAIN PIPELINE DONE ##########")
 
 
-def predict_pipeline() -> None:
+def predict_pipeline(target_date: str | None = None) -> None:
     log.info("########## PREDICT PIPELINE START ##########")
-    _ingest("predict")
+    # Anchor the download window to the requested date so the prediction is made
+    # from one month of history ending the session before it.
+    _ingest("predict", end_date=target_date)
     _preprocess("predict")
-    _predict()
+    _predict(target_date)
     log.info("########## PREDICT PIPELINE DONE ##########")
 
 
@@ -82,14 +84,22 @@ def main(argv: list[str] | None = None) -> int:
 
     p_ingest = sub.add_parser("ingest", help="Download raw price data")
     p_ingest.add_argument("--mode", choices=["train", "predict"], default="train")
+    p_ingest.add_argument("--as-of-date", dest="as_of_date", default=None,
+                          help="Anchor the predict window to end the session before "
+                               "this date (ISO). Ignored in train mode.")
 
     p_pre = sub.add_parser("preprocess", help="Engineer features")
     p_pre.add_argument("--mode", choices=["train", "predict"], default="train")
 
     sub.add_parser("train", help="Train + evaluate the model")
-    sub.add_parser("predict", help="Emit next-day directional signals")
+    p_predict = sub.add_parser("predict", help="Emit directional signals")
+    p_predict.add_argument("--as-of-date", dest="as_of_date", default=None,
+                           help="Target trading day (ISO). Default: next NSE open.")
     sub.add_parser("train-pipeline", help="ingest+preprocess+train (train mode)")
-    sub.add_parser("predict-pipeline", help="ingest+preprocess+predict (predict mode)")
+    p_predict_pipeline = sub.add_parser(
+        "predict-pipeline", help="ingest+preprocess+predict (predict mode)")
+    p_predict_pipeline.add_argument("--as-of-date", dest="as_of_date", default=None,
+                                    help="Target trading day (ISO). Default: next NSE open.")
 
     args = parser.parse_args(argv)
 
@@ -101,17 +111,17 @@ def main(argv: list[str] | None = None) -> int:
     start = time.monotonic()
     try:
         if args.stage == "ingest":
-            _ingest(args.mode)
+            _ingest(args.mode, getattr(args, "as_of_date", None))
         elif args.stage == "preprocess":
             _preprocess(args.mode)
         elif args.stage == "train":
             _train()
         elif args.stage == "predict":
-            _predict()
+            _predict(getattr(args, "as_of_date", None))
         elif args.stage == "train-pipeline":
             train_pipeline()
         elif args.stage == "predict-pipeline":
-            predict_pipeline()
+            predict_pipeline(getattr(args, "as_of_date", None))
     except Exception:
         log.exception("Stage '%s' failed", args.stage)
         return 1

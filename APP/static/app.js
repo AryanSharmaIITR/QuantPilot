@@ -30,7 +30,8 @@ $$(".tab").forEach((t) => t.addEventListener("click", () => {
   if (t.dataset.tab === "dashboard") loadStatus();
   if (t.dataset.tab === "stocks") loadStocks();
   if (t.dataset.tab === "pipeline") loadJobs();
-  if (t.dataset.tab === "predictions") loadPredictions();
+  if (t.dataset.tab === "predictions") { loadPredictions(); loadPredDates(); }
+  if (t.dataset.tab === "advisor") loadAdvisorStatus();
 }));
 
 // ---------------- Dashboard ----------------
@@ -41,7 +42,7 @@ async function loadStatus() {
     const card = (label, value, sub, cls = "") =>
       `<div class="card"><div class="label">${label}</div><div class="value ${cls}">${value}</div><div class="sub">${sub || ""}</div></div>`;
     $("#status-cards").innerHTML =
-      card("Project", s.project, "active configuration") +
+      card("Model Name", s.project, "active configuration", "modelname") +
       card("Stocks", s.num_stocks, "in universe") +
       card("Market indices", s.num_market, "in universe") +
       card("Checkpoint", s.checkpoint_exists ? "Ready" : "Missing", s.checkpoint.split("/").pop(),
@@ -56,8 +57,15 @@ async function loadStatus() {
 
 function setBusy(busy) {
   const pill = $("#busy-pill");
-  pill.textContent = busy ? "● running" : "● idle";
-  pill.className = "pill " + (busy ? "pill-busy" : "pill-idle");
+  if (pill) {
+    pill.textContent = busy ? "● running" : "● idle";
+    pill.className = "pill " + (busy ? "pill-busy" : "pill-idle");
+  }
+  const dash = $("#dash-busy");
+  if (dash) {
+    dash.textContent = busy ? "● running" : "● idle";
+    dash.className = "pill " + (busy ? "pill-busy" : "pill-idle");
+  }
 }
 
 // ---------------- Stocks ----------------
@@ -108,11 +116,23 @@ const escapeHtml = (s) => String(s).replace(/[&<>"']/g, (c) =>
   ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 
 // ---------------- Pipeline ----------------
-$$("[data-stage]").forEach((b) => b.addEventListener("click", () => runStage(b.dataset.stage, b.dataset.mode)));
+$$("[data-stage]").forEach((b) => b.addEventListener("click", () => {
+  const stage = b.dataset.stage;
+  const opts = {};
+  // Only the predict stages take a target date.
+  if (stage === "predict" || stage === "predict-pipeline") {
+    opts.asOfDate = $("#dash-pred-date")?.value || $("#pred-date")?.value || undefined;
+  }
+  runStage(stage, b.dataset.mode, opts);
+}));
 
-async function runStage(stage, mode) {
+let lastJobs = [];
+
+async function runStage(stage, mode, opts = {}) {
   try {
-    const job = await api.post("/api/pipeline/run", { stage, mode: mode || null });
+    const body = { stage, mode: mode || null };
+    if (opts.asOfDate) body.as_of_date = opts.asOfDate;
+    const job = await api.post("/api/pipeline/run", body);
     selectedJob = job.id;
     await loadJobs();
     startPolling();
@@ -121,34 +141,78 @@ async function runStage(stage, mode) {
 
 async function loadJobs() {
   const jobs = await api.get("/api/pipeline/jobs");
+  lastJobs = jobs;
   setBusy(jobs.some((j) => j.status === "running"));
-  $("#jobs-tbody").innerHTML = jobs.map((j) => `
+
+  const tbody = $("#jobs-tbody");
+  if (tbody) {
+    tbody.innerHTML = jobs.map((j) => `
+      <tr class="clickable ${j.id === selectedJob ? "sel" : ""}" data-id="${j.id}">
+        <td>${j.stage}${j.mode ? " <span class='muted'>(" + j.mode + ")</span>" : ""}</td>
+        <td><span class="status-badge s-${j.status}">${j.status}</span></td>
+        <td>${fmtTime(j.started)}</td>
+        <td>${j.status === "running" ? `<button class="row-del stop-btn" data-id="${j.id}" title="Stop">■</button>` : ""}</td>
+      </tr>`).join("") || `<tr><td colspan="4" class="muted">No jobs yet.</td></tr>`;
+
+    $$("#jobs-tbody tr.clickable").forEach((tr) => tr.addEventListener("click", (e) => {
+      if (e.target.classList.contains("stop-btn")) return;
+      selectedJob = tr.dataset.id; loadJobs(); loadLog();
+    }));
+    $$("#jobs-tbody .stop-btn").forEach((b) => b.addEventListener("click", async (e) => {
+      e.stopPropagation();
+      await api.post(`/api/pipeline/jobs/${b.dataset.id}/stop`); loadJobs();
+    }));
+  }
+
+  renderDashJobs();
+  if (selectedJob) loadLog();
+}
+
+function fmtDuration(d) {
+  if (d == null) return "—";
+  const s = Math.round(d);
+  if (s < 60) return s + "s";
+  return Math.floor(s / 60) + "m " + (s % 60) + "s";
+}
+
+function renderDashJobs() {
+  const tbody = $("#dash-jobs-tbody");
+  if (!tbody) return;
+  const jobs = lastJobs.slice(0, 6);
+  tbody.innerHTML = jobs.map((j) => `
     <tr class="clickable ${j.id === selectedJob ? "sel" : ""}" data-id="${j.id}">
       <td>${j.stage}${j.mode ? " <span class='muted'>(" + j.mode + ")</span>" : ""}</td>
       <td><span class="status-badge s-${j.status}">${j.status}</span></td>
       <td>${fmtTime(j.started)}</td>
-      <td>${j.status === "running" ? `<button class="row-del stop-btn" data-id="${j.id}" title="Stop">■</button>` : ""}</td>
+      <td>${fmtDuration(j.duration)}</td>
     </tr>`).join("") || `<tr><td colspan="4" class="muted">No jobs yet.</td></tr>`;
 
-  $$("#jobs-tbody tr.clickable").forEach((tr) => tr.addEventListener("click", (e) => {
-    if (e.target.classList.contains("stop-btn")) return;
-    selectedJob = tr.dataset.id; loadJobs(); loadLog();
+  $$("#dash-jobs-tbody tr.clickable").forEach((tr) => tr.addEventListener("click", () => {
+    selectedJob = tr.dataset.id;
+    if ($("#jobs-tbody")) loadJobs();
+    renderDashJobs();
+    loadLog();
   }));
-  $$("#jobs-tbody .stop-btn").forEach((b) => b.addEventListener("click", async (e) => {
-    e.stopPropagation();
-    await api.post(`/api/pipeline/jobs/${b.dataset.id}/stop`); loadJobs();
-  }));
-  if (selectedJob) loadLog();
 }
 
 async function loadLog() {
   if (!selectedJob) return;
   try {
     const res = await api.get(`/api/pipeline/jobs/${selectedJob}/log`);
-    $("#log-job-id").textContent = "· " + selectedJob;
+    const idEl = $("#log-job-id");
+    if (idEl) idEl.textContent = "· " + selectedJob;
     const box = $("#job-log");
-    box.textContent = res.log || "(no output yet)";
-    box.scrollTop = box.scrollHeight;
+    if (box) {
+      box.textContent = res.log || "(no output yet)";
+      box.scrollTop = box.scrollHeight;
+    }
+    const dashId = $("#dash-log-id");
+    if (dashId) dashId.textContent = "· " + selectedJob;
+    const dashBox = $("#dash-log");
+    if (dashBox) {
+      dashBox.textContent = res.log || "(no output yet)";
+      dashBox.scrollTop = dashBox.scrollHeight;
+    }
   } catch (e) { /* job may not exist */ }
 }
 
@@ -163,28 +227,260 @@ function startPolling() {
 
 // ---------------- Predictions ----------------
 $("#refresh-pred").addEventListener("click", loadPredictions);
-$("#run-pred").addEventListener("click", () => runStage("predict-pipeline"));
+$("#run-pred").addEventListener("click", () =>
+  runStage("predict-pipeline", null, { asOfDate: $("#pred-date")?.value || undefined })
+);
+
+// Populate the prediction target-date pickers and keep them in sync.
+function _setDateInput(el, info) {
+  if (!el) return;
+  if (info && info.available) {
+    el.min = info.min_date || "";
+    el.max = info.max_date || "";
+    if (info.default_date) el.value = info.default_date;
+    el.disabled = false;
+  } else {
+    el.value = "";
+    el.disabled = true;
+  }
+}
+
+async function loadPredDates() {
+  let info = null;
+  try {
+    info = await api.get("/api/predictions/dates");
+  } catch (_) {
+    info = null;
+  }
+  const predDate = $("#pred-date");
+  const dashDate = $("#dash-pred-date");
+  _setDateInput(predDate, info);
+  _setDateInput(dashDate, info);
+  if (predDate && dashDate && !predDate._synced) {
+    predDate._synced = true;
+    predDate.addEventListener("change", () => { dashDate.value = predDate.value; });
+    dashDate.addEventListener("change", () => { predDate.value = dashDate.value; });
+  }
+}
+
+// Prettify a raw CSV column name into a header label.
+function prettyCol(key) {
+  return key.replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+// Columns shown in the prediction tables. "Date" duplicates as_of_date, so hide it.
+const HIDDEN_PRED_COLS = new Set(["Date"]);
+function predCols(rows) {
+  return rows.length ? Object.keys(rows[0]).filter((c) => !HIDDEN_PRED_COLS.has(c)) : [];
+}
+
+// Render a single cell, with special formatting for known columns.
+function renderCell(key, value, up) {
+  if (key === "up_probability") {
+    const prob = parseFloat(value);
+    if (!isNaN(prob)) {
+      const pct = Math.round(prob * 100);
+      return `<td>${prob.toFixed(4)}
+        <div class="prob-bar"><div class="prob-fill" style="width:${pct}%;background:${up ? "var(--green)" : "var(--red)"}"></div></div>
+      </td>`;
+    }
+  }
+  if (key === "signal") {
+    return `<td class="${up ? "sig-up" : "sig-down"}">${up ? "▲ UP" : "▼ DOWN"}</td>`;
+  }
+  if (key === "ticker") {
+    return `<td class="mono">${escapeHtml(value)}</td>`;
+  }
+  return `<td>${escapeHtml(value)}</td>`;
+}
 
 async function loadPredictions() {
   const data = await api.get("/api/predictions");
-  $("#pred-meta").textContent = data.count
-    ? `${data.count} signals · as of ${data.predictions[0].as_of_date}`
-    : "No predictions yet — run the predict pipeline.";
-  $("#pred-tbody").innerHTML = data.predictions.map((p, i) => {
-    const prob = parseFloat(p.up_probability);
+  const rows = data.predictions || [];
+  const meta = $("#pred-meta");
+  if (meta) {
+    if (data.count) {
+      const first = rows[0];
+      const target = first.target_date || first.as_of_date;
+      meta.textContent = `Signals for ${target} · data through ${first.as_of_date} · ${data.count} stocks`;
+    } else {
+      meta.textContent = "No predictions yet — run the predict pipeline.";
+    }
+  }
+
+  // Derive columns from the CSV headers (Date is hidden — see predCols).
+  const cols = predCols(rows);
+  $("#pred-thead").innerHTML = rows.length
+    ? `<tr><th>#</th>${cols.map((c) => `<th>${escapeHtml(prettyCol(c))}</th>`).join("")}</tr>`
+    : "";
+
+  $("#pred-tbody").innerHTML = rows.map((p, i) => {
     const up = (p.signal || "").toUpperCase() === "UP";
-    const pct = Math.round(prob * 100);
-    return `<tr>
-      <td>${i + 1}</td>
-      <td>${escapeHtml(p.stock)}</td>
-      <td class="mono">${escapeHtml(p.ticker)}</td>
-      <td>${prob.toFixed(4)}
-        <div class="prob-bar"><div class="prob-fill" style="width:${pct}%;background:${up ? "var(--green)" : "var(--red)"}"></div></div>
-      </td>
-      <td class="${up ? "sig-up" : "sig-down"}">${up ? "▲ UP" : "▼ DOWN"}</td>
-    </tr>`;
-  }).join("") || `<tr><td colspan="5" class="muted">No predictions.</td></tr>`;
+    const cells = cols.map((c) => renderCell(c, p[c], up)).join("");
+    return `<tr><td>${i + 1}</td>${cells}</tr>`;
+  }).join("") || `<tr><td class="muted">No predictions.</td></tr>`;
 }
+
+// Dashboard: compact top-N predictions table.
+async function loadDashPredictions() {
+  const thead = $("#dash-pred-thead");
+  const tbody = $("#dash-pred-tbody");
+  if (!thead && !tbody) return;
+  try {
+    const data = await api.get("/api/predictions");
+    const rows = (data.predictions || []).slice(0, 8);
+    const cols = predCols(rows);
+    if (thead) {
+      thead.innerHTML = rows.length
+        ? `<tr><th>#</th>${cols.map((c) => `<th>${escapeHtml(prettyCol(c))}</th>`).join("")}</tr>`
+        : "";
+    }
+    if (tbody) {
+      tbody.innerHTML = rows.map((p, i) => {
+        const up = (p.signal || "").toUpperCase() === "UP";
+        const cells = cols.map((c) => renderCell(c, p[c], up)).join("");
+        return `<tr><td>${i + 1}</td>${cells}</tr>`;
+      }).join("") || `<tr><td class="muted">No predictions yet — run the predict pipeline.</td></tr>`;
+    }
+  } catch (e) {
+    if (tbody) tbody.innerHTML = `<tr><td class="muted">Could not load predictions: ${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+$("#dash-pred-refresh")?.addEventListener("click", loadDashPredictions);
+
+// ---------------- AI Advisor ----------------
+const CUR_SYMBOL = { INR: "₹", USD: "$", EUR: "€", GBP: "£" };
+let advCurrency = "INR";
+
+function fmtMoney(n) {
+  const code = advCurrency || "INR";
+  try {
+    return new Intl.NumberFormat(code === "INR" ? "en-IN" : "en-US",
+      { style: "currency", currency: code, maximumFractionDigits: 0 }).format(n);
+  } catch {
+    return `${CUR_SYMBOL[code] || ""}${Number(n).toLocaleString()}`;
+  }
+}
+
+async function loadAdvisorStatus() {
+  const statusEl = $("#adv-status");
+  const runBtn = $("#adv-run");
+  try {
+    const s = await api.get("/api/advisor/status");
+    advCurrency = s.currency || "INR";
+    $("#adv-currency").textContent = CUR_SYMBOL[advCurrency] || advCurrency;
+    const bits = [];
+    bits.push(s.deps_installed ? "deps ✓" : "deps ✗ (pip install)");
+    bits.push(`${s.llm.provider}:${s.llm.model || "?"} ${s.llm.key_present ? "✓" : "✗ key"}`);
+    bits.push(`news ${s.tavily.key_present ? "✓" : "off (no Tavily key)"}`);
+    statusEl.textContent = bits.join(" · ");
+    statusEl.className = s.ready ? "muted ok" : "muted bad";
+    if (runBtn) {
+      runBtn.disabled = !s.ready;
+      runBtn.title = s.ready ? "" : "Install deps and set the LLM API key first.";
+    }
+    const newsBox = $("#adv-news");
+    if (newsBox && !s.tavily.key_present) newsBox.checked = false;
+  } catch (e) {
+    statusEl.textContent = e.message;
+    statusEl.className = "muted bad";
+  }
+}
+
+async function runAdvisor() {
+  const budget = parseFloat($("#adv-budget").value);
+  const errEl = $("#adv-error");
+  errEl.textContent = "";
+  if (!budget || budget <= 0) { errEl.textContent = "Enter a positive amount to invest."; return; }
+
+  $("#adv-loading").hidden = false;
+  $("#adv-plans").innerHTML = "";
+  $("#adv-news-wrap").innerHTML = "";
+  $("#adv-outlook").innerHTML = "";
+  $("#adv-meta").textContent = "";
+  const runBtn = $("#adv-run");
+  runBtn.disabled = true;
+  try {
+    const res = await api.post("/api/advisor/plan", {
+      budget,
+      include_news: $("#adv-news").checked,
+    });
+    advCurrency = res.currency || advCurrency;
+    renderAdvisor(res);
+  } catch (e) {
+    errEl.textContent = e.message;
+  } finally {
+    $("#adv-loading").hidden = true;
+    runBtn.disabled = false;
+  }
+}
+
+function renderAdvisor(res) {
+  const gen = res.generated_with || {};
+  $("#adv-meta").textContent =
+    `Plans for ${res.target_date || "next session"} · data through ${res.as_of_date || "—"} · ` +
+    `${gen.provider || ""} ${gen.model || ""} · news ${res.news_enabled ? "on" : "off"}`;
+
+  $("#adv-outlook").innerHTML = res.market_outlook
+    ? `<h3>Market outlook</h3><p>${escapeHtml(res.market_outlook)}</p>` : "";
+
+  // Plan cards.
+  $("#adv-plans").innerHTML = (res.plans || []).map((p) => {
+    const rows = (p.allocations || []).map((a) => `
+      <tr>
+        <td>${escapeHtml(a.stock)}</td>
+        <td class="mono">${escapeHtml(a.ticker)}</td>
+        <td class="num">${fmtMoney(a.amount)}</td>
+        <td class="num">${a.percent}%</td>
+        <td class="adv-reason">${escapeHtml(a.reason || "")}</td>
+      </tr>`).join("") || `<tr><td colspan="5" class="muted">No allocations.</td></tr>`;
+    return `
+      <div class="plan-card plan-${p.key}">
+        <div class="plan-head">
+          <h3>${escapeHtml(p.title)}</h3>
+          <span class="risk-badge risk-${p.risk_level.toLowerCase()}">${escapeHtml(p.risk_level)} risk</span>
+        </div>
+        <p class="plan-obj muted">${escapeHtml(p.objective)}</p>
+        ${p.summary ? `<p class="plan-summary">${escapeHtml(p.summary)}</p>` : ""}
+        ${p.expected_return ? `<p class="plan-exp"><strong>Expected:</strong> ${escapeHtml(p.expected_return)}</p>` : ""}
+        <table class="data-table plan-table">
+          <thead><tr><th>Stock</th><th>Ticker</th><th class="num">Amount</th><th class="num">%</th><th>Why</th></tr></thead>
+          <tbody>${rows}</tbody>
+        </table>
+        <div class="plan-total">Total invested: <strong>${fmtMoney(p.total)}</strong></div>
+      </div>`;
+  }).join("");
+
+  // News section.
+  let news = "";
+  if ((res.market_news || []).length) {
+    news += `<h3>Market news</h3><ul class="news-list">` +
+      res.market_news.map(newsItem).join("") + `</ul>`;
+  }
+  const stockNews = res.stock_news || {};
+  const tickers = Object.keys(stockNews);
+  if (tickers.length) {
+    news += `<h3>Per-stock news</h3>` + tickers.map((tk) =>
+      `<details class="news-stock"><summary>${escapeHtml(tk)} <span class="muted">(${stockNews[tk].length})</span></summary>
+        <ul class="news-list">${stockNews[tk].map(newsItem).join("")}</ul></details>`).join("");
+  }
+  $("#adv-news-wrap").innerHTML = news;
+}
+
+function newsItem(n) {
+  const title = escapeHtml(n.title || "(untitled)");
+  const link = n.url ? `<a href="${escapeHtml(n.url)}" target="_blank" rel="noopener">${title}</a>` : title;
+  return `<li>${link}<div class="news-snippet muted">${escapeHtml(n.content || "")}</div></li>`;
+}
+
+$("#adv-run")?.addEventListener("click", runAdvisor);
 
 // ---------------- Init ----------------
 loadStatus();
+loadJobs();
+loadDashPredictions();
+loadPredDates();
+setInterval(loadStatus, 5000);
+setInterval(loadJobs, 5000);
+setInterval(loadDashPredictions, 15000);

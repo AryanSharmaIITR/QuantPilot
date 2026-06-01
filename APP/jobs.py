@@ -59,7 +59,7 @@ def is_busy() -> bool:
         return any(_refresh(j)["status"] == "running" for j in _jobs.values())
 
 
-def start_job(stage: str, mode: str | None = None) -> dict:
+def start_job(stage: str, mode: str | None = None, as_of_date: str | None = None) -> dict:
     if stage not in STAGES:
         raise ValueError(f"Unknown stage '{stage}'. Valid: {sorted(STAGES)}")
     if mode is not None and not STAGES[stage]:
@@ -76,6 +76,8 @@ def start_job(stage: str, mode: str | None = None) -> dict:
     cmd = [sys.executable, str(PIPELINE), stage]
     if mode is not None:
         cmd += ["--mode", mode]
+    if as_of_date and stage in ("ingest", "predict", "predict-pipeline"):
+        cmd += ["--as-of-date", as_of_date]
 
     logf = open(log_path, "w")
     proc = subprocess.Popen(
@@ -86,6 +88,7 @@ def start_job(stage: str, mode: str | None = None) -> dict:
         "id": job_id,
         "stage": stage,
         "mode": mode,
+        "as_of_date": as_of_date,
         "command": " ".join(cmd),
         "status": "running",
         "pid": proc.pid,

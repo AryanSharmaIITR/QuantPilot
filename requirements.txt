@@ -9,7 +9,18 @@ optuna>=3.4
 torch>=2.1
 tqdm>=4.66
 matplotlib>=3.7   # optional: Optuna optimization plots
+pandas-market-calendars>=4.4   # NSE trading-calendar for prediction target dates
 
 # Web app (APP/)
 fastapi>=0.110
 uvicorn>=0.27
+
+# Agentic investment advisor (signals/advisor.py — LangGraph)
+langgraph>=0.2
+langchain-core>=0.3
+langchain-groq>=0.2            # default free LLM provider (Groq)
+langchain-google-genai>=2.0    # optional alternative provider (Gemini)
+tavily-python>=0.5             # news retrieval (optional — degrades if absent)
+# Optional extra providers (uncomment to use):
+langchain-openai>=0.2
+langchain-anthropic>=0.2

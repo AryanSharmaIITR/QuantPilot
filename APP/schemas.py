@@ -29,11 +29,22 @@ class JobStartRequest(BaseModel):
         "train-pipeline", "predict-pipeline",
     ]
     mode: Optional[Literal["train", "predict"]] = None
+    as_of_date: Optional[str] = None
 
 
 class Prediction(BaseModel):
     stock: str
     ticker: str
     as_of_date: str
+    target_date: Optional[str] = None
     up_probability: float
     signal: str
+
+
+class AdvisorRequest(BaseModel):
+    budget: float = Field(..., gt=0, examples=[100000],
+                          description="Amount to invest, in the configured currency")
+    currency: Optional[str] = None
+    include_news: Optional[bool] = None
+    max_stocks: Optional[int] = Field(None, ge=0,
+                                      description="Cap stocks to fetch news for (0/None = all)")

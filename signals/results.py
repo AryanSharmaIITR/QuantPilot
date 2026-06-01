@@ -148,7 +148,9 @@ class Predictor:
         logits = self.head(features)               # (1, N_stk, 1)
         return torch.sigmoid(logits).reshape(-1)   # (N_stk,)
 
-    def predict(self) -> pd.DataFrame:
+    def predict(self, target_date: str | None = None) -> pd.DataFrame:
+        from market_calendar import next_market_open
+
         # Build ordered path lists (category order == training order).
         market_paths = [
             os.path.join(D.PREDICT_PREPROCESSED_DIR_NSE, f"{D.sanitize(n)}.csv")
@@ -160,32 +162,74 @@ class Predictor:
         ]
 
         ds = PredictionDataset(market_paths, stock_paths, self.seq_len)
-        log.info("Aligned %d common dates; predicting from latest %d-day window",
-                 len(ds.common_dates), self.seq_len)
+        common = ds.common_dates
+        if len(common) < self.seq_len:
+            raise ValueError("Not enough history to build a prediction window")
 
-        market_data, stock_data = ds.latest_window()
+        next_open = next_market_open(common[-1])
+
+        # ------------------------------------------------------------------
+        # Resolve the target trading day (the day the signal is FOR).
+        #   - Forward/default: next NSE open after the latest data session.
+        #   - Backtest: a past session in common_dates, predicting from the
+        #     seq_len sessions ending the day before it.
+        # ------------------------------------------------------------------
+        if not target_date:
+            market_data, stock_data = ds.latest_window()
+            cutoff = common[-1]
+            target = next_open
+        else:
+            picked = str(target_date)
+            if picked >= next_open or picked > common[-1]:
+                # At/after the next open (or beyond known data) -> forward.
+                market_data, stock_data = ds.latest_window()
+                cutoff = common[-1]
+                target = next_open
+            else:
+                # Snap to the largest available session <= picked.
+                idx = None
+                for i, d in enumerate(common):
+                    if d <= picked:
+                        idx = i
+                    else:
+                        break
+                if idx is None:
+                    raise ValueError(
+                        f"target_date {picked} is before the earliest available session"
+                    )
+                if idx < self.seq_len:
+                    raise ValueError(f"not enough history before {common[idx]}")
+                market_data, stock_data = ds[idx - self.seq_len]
+                cutoff = common[idx - 1]
+                target = common[idx]
+
+        as_of = cutoff
+        log.info("Predicting for target_date=%s (data cutoff=%s, %d common dates)",
+                 target, cutoff, len(common))
+
         probs = self._forward(market_data, stock_data).cpu().numpy()
         labels = (probs > self.threshold).astype(int)
 
-        as_of = ds.common_dates[-1]
         result = pd.DataFrame({
             "Date": as_of,  # last date of the input window the prediction is based on
             "stock": list(D.stocks_cat.keys()),
             "ticker": list(D.stocks_tickers.values()),
             "as_of_date": as_of,
+            "target_date": target,
             "up_probability": np.round(probs, 4),
             "signal": np.where(labels == 1, "UP", "DOWN"),
         })
 
         out_path = D.PREDICTIONS_PATH
         result.to_csv(out_path, index=False)
-        log.info("Wrote %d predictions (as of %s) to %s", len(result), as_of, out_path)
+        log.info("Wrote %d predictions (target %s, as of %s) to %s",
+                 len(result), target, as_of, out_path)
         return result
 
 
-def run_prediction() -> pd.DataFrame:
+def run_prediction(target_date: str | None = None) -> pd.DataFrame:
     """Entry point for the inference stage."""
-    return Predictor().predict()
+    return Predictor().predict(target_date)
 
 
 if __name__ == "__main__":

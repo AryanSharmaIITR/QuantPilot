@@ -83,6 +83,28 @@ xgboost:
     tree_method: hist
     seed: 42
 
+# --- Agentic investment advisor (LangGraph) ----------------------------------
+# Reads predictions.csv + Tavily news and drafts three allocation plans for a
+# user-supplied budget. Keys are read from the environment (or a .env file at the
+# project root): GROQ_API_KEY / GOOGLE_API_KEY / OPENAI_API_KEY / ANTHROPIC_API_KEY
+# for the LLM, and TAVILY_API_KEY for news. Everything degrades gracefully.
+agent:
+  currency: "INR"               # display currency for plan allocations
+  llm:
+    provider: groq              # groq | gemini | openai | anthropic
+    model: openai/gpt-oss-120b   # groq-hosted; gemini e.g. gemini-2.0-flash
+    temperature: 0.3
+    max_tokens: 3000            # output budget — keep total under Groq free-tier TPM (12k)
+  news:
+    enabled: true               # master switch for Tavily news enrichment
+    per_stock_results: 2        # top news items fetched per stock (shown in UI)
+    market_results: 5           # top news items for the broad Indian market
+    max_stocks: 0               # cap stocks fetched news for (0 = every stock)
+    # Prompt-size controls — the LLM prompt is trimmed independently of what the
+    # UI shows, so free-tier token limits (Groq ~12k TPM) aren't exceeded:
+    prompt_max_stocks: 12       # only the top-N signals' news go into the prompt (0 = all)
+    prompt_snippet_chars: 200   # per-news characters fed to the LLM
+
 # --- Logging ------------------------------------------------------------------
 logging:
   level: INFO                   # DEBUG | INFO | WARNING | ERROR

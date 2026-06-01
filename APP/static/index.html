@@ -4,7 +4,10 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>QuantPilot — Control Panel</title>
-  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/static/style.css?v=9" />
 </head>
 <body>
   <header class="topbar">
@@ -23,12 +26,63 @@
     <button class="tab" data-tab="stocks">Stocks</button>
     <button class="tab" data-tab="pipeline">Pipeline</button>
     <button class="tab" data-tab="predictions">Predictions</button>
+    <button class="tab" data-tab="advisor">AI Advisor</button>
   </nav>
 
   <main>
     <!-- DASHBOARD -->
     <section id="dashboard" class="panel active">
       <div class="cards" id="status-cards"></div>
+
+      <div class="dash-grid">
+        <div class="dash-col-main">
+
+          <div class="dash-card">
+            <div class="dash-card-head">
+              <h3>Quick run</h3>
+              <span id="dash-busy" class="pill pill-idle">● idle</span>
+            </div>
+            <p class="muted dash-sub">Kick off a full pipeline without leaving the dashboard.</p>
+            <label class="date-field">Date <input type="date" id="dash-pred-date" /></label>
+            <div class="quick-run">
+              <button class="btn btn-primary" data-stage="predict-pipeline">▶ Predict pipeline <small>ingest→features→predict</small></button>
+              <button class="btn btn-warn" data-stage="train-pipeline">▶ Train pipeline <small>ingest→features→train (slow)</small></button>
+            </div>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-head">
+              <h3>Recent jobs</h3>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table"><thead><tr><th>Stage</th><th>Status</th><th>Started</th><th>Duration</th></tr></thead>
+                <tbody id="dash-jobs-tbody"></tbody></table>
+            </div>
+          </div>
+
+          <div class="dash-card">
+            <div class="dash-card-head">
+              <h3>Live log <span id="dash-log-id" class="muted"></span></h3>
+            </div>
+            <pre id="dash-log" class="log-box dash-log">Run a job or select one to view its log…</pre>
+          </div>
+
+        </div>
+
+        <div class="dash-col-side">
+          <div class="dash-card">
+            <div class="dash-card-head">
+              <h3>Latest predictions</h3>
+              <button id="dash-pred-refresh" class="btn" title="Refresh">↻</button>
+            </div>
+            <div class="table-scroll">
+              <table class="data-table">
+                <thead id="dash-pred-thead"></thead>
+                <tbody id="dash-pred-tbody"></tbody></table>
+            </div>
+          </div>
+        </div>
+      </div>
     </section>
 
     <!-- STOCKS -->
@@ -108,16 +162,47 @@
     <!-- PREDICTIONS -->
     <section id="predictions" class="panel">
       <div class="pred-toolbar">
+        <label class="date-field">Prediction date <input type="date" id="pred-date" /></label>
         <button id="refresh-pred" class="btn">↻ Refresh</button>
         <button id="run-pred" class="btn btn-primary">▶ Run predict pipeline</button>
         <span id="pred-meta" class="muted"></span>
       </div>
-      <table class="data-table"><thead>
-        <tr><th>#</th><th>Stock</th><th>Ticker</th><th>Up prob.</th><th>Signal</th></tr></thead>
+      <table class="data-table">
+        <thead id="pred-thead"></thead>
         <tbody id="pred-tbody"></tbody></table>
+    </section>
+
+    <!-- AI ADVISOR -->
+    <section id="advisor" class="panel">
+      <div class="note">
+        An agentic advisor (LangGraph) reads the latest predictions, pulls market &amp;
+        per-stock news from Tavily, and drafts three budget-aware plans. Keys are read
+        from the environment or a <code>.env</code> file:
+        <code>GROQ_API_KEY</code> (LLM) and <code>TAVILY_API_KEY</code> (news, optional).
+      </div>
+
+      <div class="advisor-toolbar">
+        <label class="adv-field">Amount to invest
+          <span class="adv-input"><span id="adv-currency" class="adv-cur">₹</span>
+            <input type="number" id="adv-budget" min="1000" step="1000" value="100000" /></span>
+        </label>
+        <label class="adv-check"><input type="checkbox" id="adv-news" checked /> Include news</label>
+        <button id="adv-run" class="btn btn-primary">✦ Generate plans</button>
+        <span id="adv-status" class="muted"></span>
+      </div>
+      <div id="adv-error" class="error-msg"></div>
+
+      <div id="adv-loading" class="adv-loading" hidden>
+        <span class="spinner"></span> Gathering news &amp; drafting plans… this can take 20–60s.
+      </div>
+
+      <div id="adv-meta" class="muted adv-meta"></div>
+      <div id="adv-outlook" class="adv-outlook"></div>
+      <div id="adv-plans" class="advisor-plans"></div>
+      <div id="adv-news-wrap" class="adv-news-wrap"></div>
     </section>
   </main>
 
-  <script src="/static/app.js"></script>
+  <script src="/static/app.js?v=6"></script>
 </body>
 </html>

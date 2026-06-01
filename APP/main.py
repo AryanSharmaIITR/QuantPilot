@@ -28,8 +28,9 @@ from fastapi.staticfiles import StaticFiles
 
 from . import ROOT_DIR
 from . import jobs, registry
-from .schemas import AddInstrument, JobStartRequest
+from .schemas import AddInstrument, AdvisorRequest, JobStartRequest
 
+import advisor as ADV  # signals/advisor.py
 import data as D  # signals/data.py
 
 STATIC_DIR = Path(__file__).resolve().parent / "static"
@@ -118,7 +119,7 @@ def reset_stocks() -> dict:
 @app.post("/api/pipeline/run")
 def run_pipeline(req: JobStartRequest) -> dict:
     try:
-        return jobs.start_job(req.stage, req.mode)
+        return jobs.start_job(req.stage, req.mode, req.as_of_date)
     except RuntimeError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
     except ValueError as exc:
@@ -165,10 +166,74 @@ def _read_predictions() -> list[dict]:
         return list(csv.DictReader(f))
 
 
+# How far back the date picker lets you reach. Predicting a past day re-fetches
+# one month of history ending the session before it, so the range is bounded by
+# what is sensible to request rather than by what is currently on disk.
+PREDICTION_HISTORY_YEARS = 5
+
+
+@app.get("/api/predictions/dates")
+def prediction_dates() -> dict:
+    """Selectable prediction-date range.
+
+    Upper bound / default is today (if a trading day) or the next NSE open;
+    lower bound reaches back across previous trading days. Because each run
+    re-ingests the month of history ending the day before the chosen date, the
+    range no longer depends on the data currently on disk. Always returns HTTP
+    200 — the UI degrades gracefully (disables the picker) on any error.
+    """
+    try:
+        import pandas as pd
+        from market_calendar import first_market_open, is_trading_day, next_market_open
+
+        today = pd.Timestamp.now().normalize().date().isoformat()
+        # The furthest forward you can predict: today's session if it is a
+        # trading day, otherwise the next one to open.
+        upper = today if is_trading_day(today) else next_market_open(today)
+
+        earliest = (
+            pd.Timestamp(today) - pd.DateOffset(years=PREDICTION_HISTORY_YEARS)
+        ).date().isoformat()
+        min_date = first_market_open(earliest)
+
+        return {
+            "available": True,
+            "min_date": min_date,
+            "max_date": upper,
+            "default_date": upper,
+            "next_open": upper,
+        }
+    except Exception as exc:  # noqa: BLE001 — degrade gracefully for the UI
+        return {"available": False, "reason": str(exc)}
+
+
 @app.get("/api/predictions")
 def get_predictions() -> dict:
     rows = _read_predictions()
     return {"count": len(rows), "predictions": rows}
+
+
+# ----------------------------------------------------------------------------
+# Agentic investment advisor (LangGraph)
+# ----------------------------------------------------------------------------
+@app.get("/api/advisor/status")
+def advisor_status() -> dict:
+    """Readiness of the advisor (deps installed, LLM/Tavily keys present)."""
+    return ADV.advisor_status()
+
+
+@app.post("/api/advisor/plan")
+def advisor_plan(req: AdvisorRequest) -> dict:
+    """Draft three budget-aware investment plans from the latest predictions."""
+    result = ADV.generate_plans(
+        budget=req.budget,
+        currency=req.currency,
+        include_news=req.include_news,
+        max_stocks=req.max_stocks,
+    )
+    if not result.get("ok"):
+        raise HTTPException(status_code=400, detail=result.get("error", "Advisor failed"))
+    return result
 
 
 # ----------------------------------------------------------------------------
