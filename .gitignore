@@ -216,5 +216,4 @@ APP/logs/
 # Editor / CI
 .vscode/
 .github/
-.env
 VIDEO_SCRIPT.md

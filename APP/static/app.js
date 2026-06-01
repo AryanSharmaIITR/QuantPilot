@@ -425,8 +425,8 @@ function renderAdvisor(res) {
   $("#adv-outlook").innerHTML = res.market_outlook
     ? `<h3>Market outlook</h3><p>${escapeHtml(res.market_outlook)}</p>` : "";
 
-  // Plan cards.
-  $("#adv-plans").innerHTML = (res.plans || []).map((p) => {
+  // Plan cards — one per row, each collapsible (open the first by default).
+  $("#adv-plans").innerHTML = (res.plans || []).map((p, i) => {
     const rows = (p.allocations || []).map((a) => `
       <tr>
         <td>${escapeHtml(a.stock)}</td>
@@ -436,20 +436,24 @@ function renderAdvisor(res) {
         <td class="adv-reason">${escapeHtml(a.reason || "")}</td>
       </tr>`).join("") || `<tr><td colspan="5" class="muted">No allocations.</td></tr>`;
     return `
-      <div class="plan-card plan-${p.key}">
-        <div class="plan-head">
-          <h3>${escapeHtml(p.title)}</h3>
+      <details class="plan-card plan-${p.key}"${i === 0 ? " open" : ""}>
+        <summary class="plan-acc-head">
+          <span class="plan-caret">▸</span>
+          <span class="plan-title-text">${escapeHtml(p.title)}</span>
           <span class="risk-badge risk-${p.risk_level.toLowerCase()}">${escapeHtml(p.risk_level)} risk</span>
+          <span class="plan-total-inline">${fmtMoney(p.total)}</span>
+        </summary>
+        <div class="plan-body">
+          <p class="plan-obj muted">${escapeHtml(p.objective)}</p>
+          ${p.summary ? `<p class="plan-summary">${escapeHtml(p.summary)}</p>` : ""}
+          ${p.expected_return ? `<p class="plan-exp"><strong>Expected:</strong> ${escapeHtml(p.expected_return)}</p>` : ""}
+          <table class="data-table plan-table">
+            <thead><tr><th>Stock</th><th>Ticker</th><th class="num">Amount</th><th class="num">%</th><th>Why</th></tr></thead>
+            <tbody>${rows}</tbody>
+          </table>
+          <div class="plan-total">Total invested: <strong>${fmtMoney(p.total)}</strong></div>
         </div>
-        <p class="plan-obj muted">${escapeHtml(p.objective)}</p>
-        ${p.summary ? `<p class="plan-summary">${escapeHtml(p.summary)}</p>` : ""}
-        ${p.expected_return ? `<p class="plan-exp"><strong>Expected:</strong> ${escapeHtml(p.expected_return)}</p>` : ""}
-        <table class="data-table plan-table">
-          <thead><tr><th>Stock</th><th>Ticker</th><th class="num">Amount</th><th class="num">%</th><th>Why</th></tr></thead>
-          <tbody>${rows}</tbody>
-        </table>
-        <div class="plan-total">Total invested: <strong>${fmtMoney(p.total)}</strong></div>
-      </div>`;
+      </details>`;
   }).join("");
 
   // News section.

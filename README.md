@@ -13,7 +13,7 @@
 ![Optuna](https://img.shields.io/badge/Optuna-8A2BE2?logo=optuna&logoColor=white)
 ![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)
 
-[Overview](#overview) · [Quickstart](#quickstart) · [Pipeline](#pipeline-architecture) · [Web App](#web-app) · [Automation](#automation)
+[Overview](#overview) · [Quickstart](#quickstart) · [Pipeline](#pipeline-architecture) · [Web App](#web-app) · [AI Advisor](#ai-advisor) · [Automation](#automation)
 
 </div>
 
@@ -68,6 +68,8 @@ to improve predictive robustness in financial markets.
 - End-to-end training pipeline
 - Multi-stage model pretraining
 - Classification-based directional prediction
+- Date-anchored backtesting (predict any past trading day)
+- 🤖 Agentic AI investment advisor (LangGraph + LLM + live news)
 
 ---
 
@@ -262,6 +264,12 @@ The model is evaluated using:
 ## Optimization & Experimentation
 - Optuna
 
+## Web & Agentic AI
+- FastAPI (web control panel)
+- LangGraph + LangChain (agentic advisor)
+- Groq / Google Gemini (free-tier LLMs)
+- Tavily (live financial news retrieval)
+
 ---
 
 # Project Structure
@@ -280,6 +288,8 @@ QuantPilot/
 │   ├── models.py                 # transformer · aggregator · fusion · head
 │   ├── training.py               # Stage 3 · train + evaluate  (run_training)
 │   ├── results.py                # Stage 4 · inference          (run_prediction)
+│   ├── advisor.py                # 🤖 Stage 5 · AI Advisor (LangGraph agent)
+│   ├── market_calendar.py        # NSE trading-calendar helpers (date picker)
 │   ├── pipeline.py               # ⚙️  CLI orchestrator (entry point)
 │   └── stack_stock_data.py
 │
@@ -316,7 +326,8 @@ QuantPilot/
 │
 ├── 📓 notebook/                   # research notebooks + training curves
 │
-├── ⚙️  config.yaml                # single source of truth for the whole pipeline
+├── ⚙️  config.yaml                # single source of truth (pipeline + agent settings)
+├── 🔑 .env                        # API keys for the AI Advisor (gitignored)
 ├── 🎯 tickers.json               # editable instrument universe (managed by APP)
 ├── 📄 predictions.csv            # latest directional signals (output)
 ├── 📋 requirements.txt
@@ -390,10 +401,48 @@ python APP/run.py              # http://127.0.0.1:8000  (API docs at /docs)
   `tickers.json`, which the pipeline reads.
 - **Pipeline** — trigger `ingest` / `preprocess` / `train` / `predict` (or the full
   pipelines) and watch the job log stream.
-- **Predictions** — view the latest signals as a table.
+- **Predictions** — view the latest signals as a table, and predict **any trading day**
+  (past or next session) via a date-anchored pipeline run.
+- **AI Advisor** — turn predictions into budget-aware investment plans (see below).
 
 > Changing the instrument universe alters the model's input size — retrain before
 > predicting. See [APP/README.md](APP/README.md) for details.
+
+---
+
+# AI Advisor
+
+The **AI Advisor** is an agentic layer that turns raw predictions into actionable,
+budget-aware investment plans. It is an in-process [LangGraph](https://langchain-ai.github.io/langgraph/)
+state machine:
+
+```text
+load_predictions → fetch_news (Tavily) → draft_plans (LLM) → validate_allocations
+```
+
+1. **Load** the latest `predictions.csv`, sorted by up-probability.
+2. **Fetch news** with [Tavily](https://tavily.com) — 5 broad Indian-market headlines
+   plus 2 per stock (gracefully skipped if no key).
+3. **Draft plans** — a free-tier LLM (Groq `gpt-oss-120b` by default, or Gemini) reads
+   the signals, the model's accuracy stats, and the news, then returns **three plans**:
+   - **High Return · High Risk** — concentrated in the strongest signals (`prob > 0.5`)
+   - **Most-Sure Profit · Low Risk** — only high-confidence names (`prob > 0.6`), may hold cash
+   - **Optimal · Balanced** — risk-adjusted blend (`prob > 0.4`)
+4. **Validate** — the LLM proposes per-stock amounts; **code** re-normalises them so each
+   plan sums *exactly* to the requested budget (the model never does the arithmetic).
+
+You just enter how much you want to invest; each plan returns specific per-stock
+allocations (amount + %) with a short, news-grounded reason.
+
+**Setup:** add a `.env` at the project root with `GROQ_API_KEY` (and optionally
+`TAVILY_API_KEY`); tune behaviour under `agent:` in `config.yaml`. Full details in
+[APP/README.md](APP/README.md#ai-advisor-setup-optional).
+
+```bash
+pip install -r requirements.txt   # includes langgraph, langchain-groq, tavily-python
+# CLI (no web app): print plans for a budget as JSON
+python signals/advisor.py --budget 100000
+```
 
 ---
 

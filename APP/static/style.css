@@ -228,6 +228,9 @@ input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
 .adv-meta { margin: 4px 0 14px; }
 .adv-loading { display: flex; align-items: center; gap: 10px; color: var(--muted);
   padding: 14px 0; }
+/* Respect the [hidden] attribute — a class with display:flex would otherwise
+   override it and show the loader before the button is clicked. */
+.adv-loading[hidden] { display: none; }
 .spinner { width: 16px; height: 16px; border: 2px solid var(--border);
   border-top-color: var(--accent); border-radius: 50%; animation: spin .8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -235,15 +238,25 @@ input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
 .adv-outlook h3 { margin: 0 0 6px; }
 .adv-outlook p { color: var(--text); line-height: 1.5; margin: 0 0 18px; }
 
-.advisor-plans { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-  gap: 18px; margin-bottom: 22px; }
-.plan-card { background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
-  padding: 18px 18px 14px; border-top: 4px solid var(--accent); }
+/* One plan card per row, each a collapsible accordion (<details>/<summary>). */
+.advisor-plans { display: flex; flex-direction: column; gap: 16px; margin-bottom: 22px; }
+.plan-card { background: var(--panel); border: 1px solid var(--border); border-radius: 14px;
+  border-top: 4px solid var(--accent); overflow: hidden; }
 .plan-aggressive { border-top-color: var(--red); }
 .plan-conservative { border-top-color: var(--green); }
 .plan-optimal { border-top-color: var(--accent-light); }
-.plan-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-.plan-head h3 { margin: 0; font-size: 17px; }
+/* Accordion header (always visible) */
+.plan-acc-head { list-style: none; cursor: pointer; display: flex; align-items: center;
+  gap: 12px; padding: 15px 18px; user-select: none; }
+.plan-acc-head::-webkit-details-marker { display: none; }
+.plan-card[open] .plan-acc-head { border-bottom: 1px solid var(--border); }
+.plan-caret { color: var(--muted); font-size: 12px; transition: transform .18s ease; }
+.plan-card[open] .plan-caret { transform: rotate(90deg); }
+.plan-title-text { font-family: Georgia, "Times New Roman", serif; font-size: 17px;
+  font-weight: 700; color: var(--text); }
+.plan-total-inline { margin-left: auto; font-size: 13px; font-weight: 700;
+  color: var(--accent-2); white-space: nowrap; }
+.plan-body { padding: 14px 18px 16px; }
 .risk-badge { font-size: 10px; font-weight: 700; text-transform: uppercase;
   padding: 3px 8px; border-radius: 999px; white-space: nowrap; }
 .risk-high { background: #f7e2de; color: var(--red); }
