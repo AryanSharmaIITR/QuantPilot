@@ -209,6 +209,15 @@ input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
 
 .sig-up { color: var(--green); font-weight: 700; }
 .sig-down { color: var(--red); font-weight: 700; }
+/* Predictions "Current Situation" column */
+.live-cell { white-space: nowrap; }
+.live-sub { font-size: 11px; margin-top: 2px; }
+.live-ok { color: var(--green); font-weight: 700; }
+.live-bad { color: var(--red); font-weight: 700; }
+.live-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+  background: var(--green); margin-right: 5px; vertical-align: middle;
+  animation: livepulse 1.4s ease-in-out infinite; }
+@keyframes livepulse { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 .prob-bar { height: 6px; border-radius: 4px; background: var(--border); overflow: hidden; margin-top: 4px; }
 .prob-fill { height: 100%; }
 
@@ -271,12 +280,18 @@ input[type="date"]::-webkit-calendar-picker-indicator { cursor: pointer; }
   padding: 7px 6px; vertical-align: top;
   word-break: break-word; overflow-wrap: anywhere;
 }
-.plan-table th:nth-child(1), .plan-table td:nth-child(1) { width: 25%; }  /* Stock  */
-.plan-table th:nth-child(2), .plan-table td:nth-child(2) { width: 23%; }  /* Ticker */
-.plan-table th:nth-child(3), .plan-table td:nth-child(3) { width: 20%; }  /* Amount */
-.plan-table th:nth-child(4), .plan-table td:nth-child(4) { width: 12%; }  /* %      */
-.plan-table th:nth-child(5), .plan-table td:nth-child(5) { width: 20%; }  /* Why    */
+.plan-table th:nth-child(1), .plan-table td:nth-child(1) { width: 15%; }  /* Stock        */
+.plan-table th:nth-child(2), .plan-table td:nth-child(2) { width: 12%; }  /* Ticker       */
+.plan-table th:nth-child(3), .plan-table td:nth-child(3) { width: 9%;  }  /* Confidence   */
+.plan-table th:nth-child(4), .plan-table td:nth-child(4) { width: 13%; }  /* Entry (buy)  */
+.plan-table th:nth-child(5), .plan-table td:nth-child(5) { width: 13%; }  /* Target (sell)*/
+.plan-table th:nth-child(6), .plan-table td:nth-child(6) { width: 13%; }  /* Stop-loss    */
+.plan-table th:nth-child(7), .plan-table td:nth-child(7) { width: 12%; }  /* Amount       */
+.plan-table th:nth-child(8), .plan-table td:nth-child(8) { width: 13%; }  /* Why          */
 .plan-table .num { text-align: right; white-space: normal; }
+.plan-thr { color: var(--accent); font-weight: 600; }
+.plan-trade-note { font-size: 11px; margin: 8px 0 0; }
+.plan-trade-note em { color: var(--text); font-style: normal; font-weight: 600; }
 .plan-table .mono { font-size: 11px; }
 .plan-table .adv-reason { color: var(--muted); font-size: 11px; line-height: 1.35; }
 .plan-total { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);

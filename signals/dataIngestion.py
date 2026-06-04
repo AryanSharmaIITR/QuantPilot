@@ -6,12 +6,12 @@ the scaled intraday return, and writes one CSV per instrument.
 Two modes:
   * ``train``   — long history window (``data.train_timeperiod``), written to the
                   training raw dirs.
-  * ``predict`` — short window (``data.predict_timeperiod``), written to the
-                  live-prediction raw dirs. When an ``end_date`` (the requested
-                  prediction date) is supplied, the window is anchored to it:
-                  one month of history ending the session BEFORE ``end_date``,
-                  so any past trading day can be predicted — not just the most
-                  recent month. Without it, the window simply ends today.
+  * ``predict`` — short window (``data.predict_timeperiod``, default 2 months),
+                  written to the live-prediction raw dirs. When an ``end_date``
+                  (the requested prediction date) is supplied, the window is
+                  anchored to it: ``predict_timeperiod`` of history ending the
+                  session BEFORE ``end_date``, so any past trading day can be
+                  predicted. Without it, the window simply ends today.
 
 Downloads are retried with linear backoff to tolerate transient yfinance/network
 errors — important for unattended (scheduled) runs.
@@ -19,6 +19,7 @@ errors — important for unattended (scheduled) runs.
 from __future__ import annotations
 
 import os
+import re
 import time
 
 import pandas as pd
@@ -29,6 +30,24 @@ from config import CONFIG
 from logger import get_logger
 
 log = get_logger("ingest")
+
+
+def _period_to_offset(period: str) -> pd.DateOffset:
+    """Convert a yfinance period string (e.g. '2mo', '1y', '45d') to a DateOffset.
+
+    Used to anchor the predict window: start = end_date - offset. Falls back to
+    2 months for an unrecognised value.
+    """
+    m = re.fullmatch(r"\s*(\d+)\s*(d|wk|mo|y)\s*", str(period).lower())
+    if not m:
+        return pd.DateOffset(months=2)
+    n, unit = int(m.group(1)), m.group(2)
+    return {
+        "d": pd.DateOffset(days=n),
+        "wk": pd.DateOffset(weeks=n),
+        "mo": pd.DateOffset(months=n),
+        "y": pd.DateOffset(years=n),
+    }[unit]
 
 
 class DataIngestion:
@@ -56,15 +75,16 @@ class DataIngestion:
     def _history(self, ticker: str) -> pd.DataFrame:
         """Pull raw OHLC history for one ticker.
 
-        With an anchored ``end_date`` (predict mode), fetch one month of history
-        ending the day before it — yfinance's ``end`` is exclusive, so the last
-        bar is the session immediately preceding the requested prediction date.
-        Otherwise fall back to the configured trailing ``period`` (ends today).
+        With an anchored ``end_date`` (predict mode), fetch ``predict_timeperiod``
+        of history (default 2 months) ending the day before it — yfinance's
+        ``end`` is exclusive, so the last bar is the session immediately preceding
+        the requested prediction date. Otherwise fall back to the configured
+        trailing ``period`` (ends today).
         """
         tk = yf.Ticker(ticker)
         if self.end_date:
             end = pd.Timestamp(self.end_date).normalize()
-            start = (end - pd.DateOffset(months=1)).strftime("%Y-%m-%d")
+            start = (end - _period_to_offset(self.timeperiod)).strftime("%Y-%m-%d")
             return tk.history(start=start, end=end.strftime("%Y-%m-%d"))
         return tk.history(period=self.timeperiod)
 
@@ -116,7 +136,7 @@ class DataIngestion:
         return self._fetch_universe(D.stocks_tickers, self.stock_dir, "stock")
 
     def run(self) -> None:
-        window = f"1mo ending {self.end_date}" if self.end_date else self.timeperiod
+        window = f"{self.timeperiod} ending {self.end_date}" if self.end_date else self.timeperiod
         log.info("=== Ingestion (mode=%s, window=%s) ===", self.mode, window)
         n_market = self.get_market_data()
         n_stock = self.get_stock_data()

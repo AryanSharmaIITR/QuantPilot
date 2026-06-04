@@ -197,6 +197,12 @@ function renderDashJobs() {
 
 async function loadLog() {
   if (!selectedJob) return;
+  // Don't request a job that's no longer in the list (e.g. server restarted) —
+  // it would 404 on every poll. Drop the stale selection instead.
+  if (lastJobs.length && !lastJobs.some((j) => j.id === selectedJob)) {
+    selectedJob = null;
+    return;
+  }
   try {
     const res = await api.get(`/api/pipeline/jobs/${selectedJob}/log`);
     const idEl = $("#log-job-id");
@@ -213,7 +219,10 @@ async function loadLog() {
       dashBox.textContent = res.log || "(no output yet)";
       dashBox.scrollTop = dashBox.scrollHeight;
     }
-  } catch (e) { /* job may not exist */ }
+  } catch (e) {
+    // Job vanished server-side (e.g. restart) — clear it so we stop polling/404ing.
+    selectedJob = null;
+  }
 }
 
 function startPolling() {
@@ -309,16 +318,54 @@ async function loadPredictions() {
   }
 
   // Derive columns from the CSV headers (Date is hidden — see predCols).
+  // A live "Current Situation" column is appended (filled async, see below).
   const cols = predCols(rows);
   $("#pred-thead").innerHTML = rows.length
-    ? `<tr><th>#</th>${cols.map((c) => `<th>${escapeHtml(prettyCol(c))}</th>`).join("")}</tr>`
+    ? `<tr><th>#</th>${cols.map((c) => `<th>${escapeHtml(prettyCol(c))}</th>`).join("")}<th>Current Situation</th></tr>`
     : "";
 
   $("#pred-tbody").innerHTML = rows.map((p, i) => {
     const up = (p.signal || "").toUpperCase() === "UP";
     const cells = cols.map((c) => renderCell(c, p[c], up)).join("");
-    return `<tr><td>${i + 1}</td>${cells}</tr>`;
+    const live = `<td class="live-cell" data-ticker="${escapeHtml(p.ticker || "")}"><span class="muted">…</span></td>`;
+    return `<tr><td>${i + 1}</td>${cells}${live}</tr>`;
   }).join("") || `<tr><td class="muted">No predictions.</td></tr>`;
+
+  if (rows.length) loadLiveSituation();
+}
+
+// Fetch live prices and fill the "Current Situation" column (vs target-day open).
+async function loadLiveSituation() {
+  let data;
+  try {
+    data = await api.get("/api/predictions/live");
+  } catch (_) {
+    return;
+  }
+  if (!data || !data.available) {
+    $$("#pred-tbody .live-cell").forEach((td) => { td.innerHTML = `<span class="muted">—</span>`; });
+    return;
+  }
+  const rows = data.rows || {};
+  $$("#pred-tbody .live-cell").forEach((td) => {
+    td.innerHTML = renderLiveSituation(rows[td.dataset.ticker]);
+  });
+}
+
+function renderLiveSituation(info) {
+  if (!info || info.status === "pending") return `<span class="muted" title="market not open yet for the target day">— pending</span>`;
+  if (info.status === "error" || info.change_pct == null) return `<span class="muted">n/a</span>`;
+  const up = info.change_pct >= 0;
+  const arrow = up ? "▲" : "▼";
+  const sign = info.change_pct > 0 ? "+" : "";
+  const match = info.matched === true
+    ? ` <span class="live-ok" title="matches the signal">✓</span>`
+    : info.matched === false
+      ? ` <span class="live-bad" title="against the signal">✗</span>`
+      : "";
+  const dot = info.status === "live" ? `<span class="live-dot" title="live (today)"></span>` : "";
+  return `<span class="${up ? "sig-up" : "sig-down"}">${arrow} ${sign}${info.change_pct}%</span>${match}` +
+    `<div class="live-sub muted">${dot}open ${fmtMoney(info.open)} → ${fmtMoney(info.current)}</div>`;
 }
 
 // Dashboard: compact top-N predictions table.
@@ -361,6 +408,32 @@ function fmtMoney(n) {
   } catch {
     return `${CUR_SYMBOL[code] || ""}${Number(n).toLocaleString()}`;
   }
+}
+
+// Model confidence (up_probability) as a percentage; "—" for CASH/unknown.
+function fmtConfidence(p) {
+  if (p == null || isNaN(p)) return `<span class="muted">—</span>`;
+  return `${Math.round(p * 100)}%`;
+}
+
+// Current price + intraday move from open; "—" when no live data (e.g. CASH).
+function fmtCurrentPrice(price, changePct) {
+  if (price == null || isNaN(price)) return `<span class="muted">—</span>`;
+  let move = "";
+  if (changePct != null && !isNaN(changePct)) {
+    const up = changePct >= 0;
+    move = `<div class="live-sub ${up ? "sig-up" : "sig-down"}">${up ? "▲" : "▼"} ${changePct > 0 ? "+" : ""}${changePct}%</div>`;
+  }
+  return `${fmtMoney(price)}${move}`;
+}
+
+// Intraday exit level (target/stop-loss) as a price + the % offset from entry.
+function fmtExit(price, pct, dir) {
+  if (price == null || isNaN(price)) return `<span class="muted">—</span>`;
+  const cls = dir === "up" ? "sig-up" : "sig-down";
+  const sign = dir === "up" ? "+" : "−";
+  const pctTxt = (pct != null && !isNaN(pct)) ? `<div class="live-sub ${cls}">${sign}${pct}%</div>` : "";
+  return `<span class="${cls}">${fmtMoney(price)}</span>${pctTxt}`;
 }
 
 async function loadAdvisorStatus() {
@@ -431,10 +504,14 @@ function renderAdvisor(res) {
       <tr>
         <td>${escapeHtml(a.stock)}</td>
         <td class="mono">${escapeHtml(a.ticker)}</td>
-        <td class="num">${fmtMoney(a.amount)}</td>
-        <td class="num">${a.percent}%</td>
+        <td class="num">${fmtConfidence(a.up_probability)}</td>
+        <td class="num">${fmtCurrentPrice(a.entry_price, a.change_pct)}</td>
+        <td class="num">${fmtExit(a.target_price, a.target_pct, "up")}</td>
+        <td class="num">${fmtExit(a.stoploss_price, a.stoploss_pct, "down")}</td>
+        <td class="num">${fmtMoney(a.amount)}<div class="live-sub muted">${a.percent}%</div></td>
         <td class="adv-reason">${escapeHtml(a.reason || "")}</td>
-      </tr>`).join("") || `<tr><td colspan="5" class="muted">No allocations.</td></tr>`;
+      </tr>`).join("") || `<tr><td colspan="8" class="muted">No allocations.</td></tr>`;
+    const thr = (p.threshold != null) ? Math.round(p.threshold * 100) : null;
     return `
       <details class="plan-card plan-${p.key}"${i === 0 ? " open" : ""}>
         <summary class="plan-acc-head">
@@ -444,13 +521,14 @@ function renderAdvisor(res) {
           <span class="plan-total-inline">${fmtMoney(p.total)}</span>
         </summary>
         <div class="plan-body">
-          <p class="plan-obj muted">${escapeHtml(p.objective)}</p>
+          <p class="plan-obj muted">${escapeHtml(p.objective)}${thr != null ? ` · <span class="plan-thr">picks with model confidence &gt; ${thr}%</span>` : ""}</p>
           ${p.summary ? `<p class="plan-summary">${escapeHtml(p.summary)}</p>` : ""}
           ${p.expected_return ? `<p class="plan-exp"><strong>Expected:</strong> ${escapeHtml(p.expected_return)}</p>` : ""}
           <table class="data-table plan-table">
-            <thead><tr><th>Stock</th><th>Ticker</th><th class="num">Amount</th><th class="num">%</th><th>Why</th></tr></thead>
+            <thead><tr><th>Stock</th><th>Ticker</th><th class="num">Confidence</th><th class="num">Entry (buy)</th><th class="num">Target (sell)</th><th class="num">Stop-loss</th><th class="num">Amount</th><th>Why</th></tr></thead>
             <tbody>${rows}</tbody>
           </table>
+          <p class="plan-trade-note muted">Intraday: buy near <em>Entry</em>, book profit at <em>Target</em> (+${p.target_pct}%), exit/cut at <em>Stop-loss</em> (−${p.stoploss_pct}%).</p>
           <div class="plan-total">Total invested: <strong>${fmtMoney(p.total)}</strong></div>
         </div>
       </details>`;

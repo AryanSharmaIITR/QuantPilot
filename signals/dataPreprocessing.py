@@ -44,9 +44,13 @@ class Preprocessing:
 
     # -- feature engineering -------------------------------------------------
     def set_nan(self, df: pd.DataFrame) -> pd.DataFrame:
+        # Forward-fill ONLY — never backfill. bfill() would pull future values
+        # backward into indicator warm-up rows, which is look-ahead leakage.
+        # Any remaining leading NaN (warm-up before an indicator has enough
+        # history) is set to a neutral 0, which carries no future information.
         df.replace([np.inf, -np.inf], np.nan, inplace=True)
         df.ffill(inplace=True)
-        df.bfill(inplace=True)
+        df.fillna(0.0, inplace=True)
         return df
 
     def rsi(self, df: pd.DataFrame, period: int = 14) -> pd.Series:

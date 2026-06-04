@@ -15,7 +15,7 @@ project:
 # --- Data windows & sequence construction ------------------------------------
 data:
   train_timeperiod: "3y"        # yfinance history window for training data
-  predict_timeperiod: "1mo"     # shorter window used by the live prediction run
+  predict_timeperiod: "2mo"     # history window used by the live prediction run
   sequence_length: 14           # lookback window fed to the transformers
   dim: 18                       # per-timestep feature dimension (do not change lightly)
   splits:
@@ -94,16 +94,24 @@ agent:
     provider: groq              # groq | gemini | openai | anthropic
     model: openai/gpt-oss-120b   # groq-hosted; gemini e.g. gemini-2.0-flash
     temperature: 0.3
-    max_tokens: 3000            # output budget — keep total under Groq free-tier TPM (12k)
+    max_tokens: 3000            # output budget — keep input+output under Groq free-tier TPM
+  # Intraday trade levels (take-profit / stop-loss as % of the entry price),
+  # per plan. Computed in code from the live price — target = exit-to-book-profit,
+  # stoploss = exit-to-cut-loss (the "sell threshold").
+  trade:
+    aggressive:   { target_pct: 4.0, stoploss_pct: 2.0 }
+    conservative: { target_pct: 1.5, stoploss_pct: 1.0 }
+    optimal:      { target_pct: 2.5, stoploss_pct: 1.5 }
   news:
     enabled: true               # master switch for Tavily news enrichment
     per_stock_results: 2        # top news items fetched per stock (shown in UI)
     market_results: 5           # top news items for the broad Indian market
-    max_stocks: 0               # cap stocks fetched news for (0 = every stock)
+    max_stocks: 15              # cap stocks fetched news for (top-N by probability; 0 = every stock)
     # Prompt-size controls — the LLM prompt is trimmed independently of what the
-    # UI shows, so free-tier token limits (Groq ~12k TPM) aren't exceeded:
-    prompt_max_stocks: 12       # only the top-N signals' news go into the prompt (0 = all)
-    prompt_snippet_chars: 200   # per-news characters fed to the LLM
+    # UI shows, so free-tier token limits (Groq gpt-oss-120b ~8k TPM) aren't exceeded:
+    prompt_max_signals: 25      # top-N signals (with live + prob) fed to the LLM (0 = all)
+    prompt_max_stocks: 8        # only the top-N signals' news go into the prompt (0 = all)
+    prompt_snippet_chars: 160   # per-news characters fed to the LLM
 
 # --- Logging ------------------------------------------------------------------
 logging:

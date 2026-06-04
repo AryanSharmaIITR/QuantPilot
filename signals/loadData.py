@@ -1,16 +1,31 @@
+import os
+
 from torch.utils.data import DataLoader,Dataset
 import pandas as pd
 import torch
 import numpy as np
 
 from data import stocks_cat, nse_cat, PREPROCESSED_DIR_NSE, PREPROCESSED_DIR_STOCK
-from data import SEQUENCE_LENGTH, sanitize
+from data import SEQUENCE_LENGTH, sanitize, NORM_STATS_PATH
 from logger import get_logger
 
 log = get_logger("loaddata")
 
+
+def _save_norm_stats(norm_stats) -> None:
+    """Persist the TRAIN-only per-feature normalization stats for reuse at
+    val/test/live inference (so no future statistics leak into a prediction)."""
+    mm, ms, sm, ss = norm_stats
+    os.makedirs(os.path.dirname(NORM_STATS_PATH), exist_ok=True)
+    np.savez(NORM_STATS_PATH,
+             market_mean=mm.numpy(), market_std=ms.numpy(),
+             stock_mean=sm.numpy(), stock_std=ss.numpy())
+    log.info("Saved train normalization stats -> %s", NORM_STATS_PATH)
+
+
 class dataset(Dataset):
-    def __init__(self, market_dataset_path, stock_dataset_path, sequence_length=14):
+    def __init__(self, market_dataset_path, stock_dataset_path, sequence_length=14,
+                 norm_stats=None):
         self.mkd = []
         self.skd = []
         self.targets = []
@@ -67,23 +82,28 @@ class dataset(Dataset):
             filtered_targets.append(filtered_df)
         self.targets = filtered_targets
 
-        # ===== ADD NORMALIZATION =====
-        # Calculate mean and std from all data
-        all_market = np.concatenate([df.values for df in self.mkd], axis=0)
-        all_stock = np.concatenate([df.values for df in self.skd], axis=0)
-        
-        self.market_mean = torch.tensor(all_market.mean(axis=0), dtype=torch.float32)
-        self.market_std = torch.tensor(all_market.std(axis=0) + 1e-8, dtype=torch.float32)
-        self.stock_mean = torch.tensor(all_stock.mean(axis=0), dtype=torch.float32)
-        self.stock_std = torch.tensor(all_stock.std(axis=0) + 1e-8, dtype=torch.float32)
-        
+        # ===== NORMALIZATION =====
+        # Use provided TRAIN stats when given (val/test/live), so a split is never
+        # normalized with its own future statistics. Only the train split computes
+        # stats from its own data.
+        if norm_stats is not None:
+            self.market_mean, self.market_std, self.stock_mean, self.stock_std = norm_stats
+        else:
+            all_market = np.concatenate([df.values for df in self.mkd], axis=0)
+            all_stock = np.concatenate([df.values for df in self.skd], axis=0)
+            self.market_mean = torch.tensor(all_market.mean(axis=0), dtype=torch.float32)
+            self.market_std = torch.tensor(all_market.std(axis=0) + 1e-8, dtype=torch.float32)
+            self.stock_mean = torch.tensor(all_stock.mean(axis=0), dtype=torch.float32)
+            self.stock_std = torch.tensor(all_stock.std(axis=0) + 1e-8, dtype=torch.float32)
+        self.norm_stats = (self.market_mean, self.market_std, self.stock_mean, self.stock_std)
+
         # Normalize the dataframes
         for i in range(len(self.mkd)):
             self.mkd[i] = (self.mkd[i] - self.market_mean.numpy()) / self.market_std.numpy()
-        
+
         for i in range(len(self.skd)):
             self.skd[i] = (self.skd[i] - self.stock_mean.numpy()) / self.stock_std.numpy()
-        
+
         self.sequence_length = sequence_length
 
     def __len__(self):
@@ -160,9 +180,13 @@ def get_dataloader(market_dataset_paths=PREPROCESSED_DIR_NSE, stock_dataset_path
         stock_test_dataset_path.append(f"{stock_dataset_paths}/test/{name}.csv")
         stock_val_dataset_path.append(f"{stock_dataset_paths}/val/{name}.csv")
 
-    train_dataset = dataset(market_train_dataset_path, stock_train_dataset_path,sequence_length)
-    test_dataset = dataset(market_test_dataset_path, stock_test_dataset_path,sequence_length)
-    val_dataset = dataset(market_val_dataset_path, stock_val_dataset_path,sequence_length)
+    # Train computes the normalization stats; val/test reuse them (no leakage).
+    train_dataset = dataset(market_train_dataset_path, stock_train_dataset_path, sequence_length)
+    _save_norm_stats(train_dataset.norm_stats)
+    val_dataset = dataset(market_val_dataset_path, stock_val_dataset_path, sequence_length,
+                          norm_stats=train_dataset.norm_stats)
+    test_dataset = dataset(market_test_dataset_path, stock_test_dataset_path, sequence_length,
+                           norm_stats=train_dataset.norm_stats)
 
     log.info("Train: %d samples", len(train_dataset))
     log.info("Validation: %d samples", len(val_dataset))

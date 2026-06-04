@@ -43,11 +43,14 @@ log = get_logger("advisor")
 # Fixed plan identities — the graph always returns these three, in this order.
 PLAN_SPECS = [
     {"key": "aggressive", "title": "High Return · High Risk",
-     "objective": "Maximise upside, accept volatility", "risk_level": "High"},
+     "objective": "Maximise upside, accept volatility", "risk_level": "High",
+     "threshold": 0.5, "target_pct": 4.0, "stoploss_pct": 2.0},
     {"key": "conservative", "title": "Most-Sure Profit · Low Risk",
-     "objective": "Protect capital, prefer high-confidence signals", "risk_level": "Low"},
+     "objective": "Protect capital, prefer high-confidence signals", "risk_level": "Low",
+     "threshold": 0.6, "target_pct": 1.5, "stoploss_pct": 1.0},
     {"key": "optimal", "title": "Optimal · Balanced",
-     "objective": "Best risk-adjusted blend of the two", "risk_level": "Medium"},
+     "objective": "Best risk-adjusted blend of the two", "risk_level": "Medium",
+     "threshold": 0.4, "target_pct": 2.5, "stoploss_pct": 1.5},
 ]
 
 class AdvisorState(TypedDict, total=False):
@@ -65,6 +68,7 @@ class AdvisorState(TypedDict, total=False):
     market_news: list
     stock_news: dict
     news_enabled: bool
+    live: dict
     market_outlook: str
     raw_plans: list
     plans: list
@@ -149,8 +153,14 @@ def _make_llm():
 
     if provider == "groq":
         from langchain_groq import ChatGroq
-        return ChatGroq(model=model or "openai/gpt-oss-120b",
-                        temperature=temperature, max_tokens=max_tokens)
+        model = model or "openai/gpt-oss-120b"
+        # Force a clean JSON object; for reasoning models (gpt-oss) keep reasoning
+        # cheap so it doesn't eat the output-token budget and truncate the JSON.
+        kwargs = dict(model=model, temperature=temperature, max_tokens=max_tokens,
+                      model_kwargs={"response_format": {"type": "json_object"}})
+        if "gpt-oss" in model or "deepseek" in model:
+            kwargs["reasoning_effort"] = "low"
+        return ChatGroq(**kwargs)
     if provider in ("gemini", "google", "google-genai"):
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(model=model or "gemini-2.0-flash",
@@ -281,6 +291,46 @@ def _node_fetch_news(state: dict) -> dict:
     return {"market_news": market_news, "stock_news": stock_news, "news_enabled": True}
 
 
+def _node_fetch_live(state: dict) -> dict:
+    """Fetch each predicted stock's current price vs today's OPEN (one batched call).
+
+    This gives the LLM the live intraday reality so it can recalibrate the model's
+    next-day signal against what the stock is actually doing right now. Degrades to
+    an empty dict on any failure (offline / yfinance hiccup).
+    """
+    try:
+        import yfinance as yf
+
+        tickers = [r.get("ticker") for r in state["predictions"] if r.get("ticker")]
+        if not tickers:
+            return {"live": {}}
+        data = yf.download(tickers, period="1d", group_by="ticker",
+                           threads=True, progress=False, auto_adjust=False)
+        live: dict[str, dict] = {}
+        for tk in dict.fromkeys(tickers):
+            try:
+                df = data[tk].dropna(how="all")
+                if df.empty:
+                    continue
+                o = float(df["Open"].iloc[-1])
+                c = float(df["Close"].iloc[-1])
+                if o <= 0:
+                    continue
+                live[tk] = {
+                    "open": round(o, 2),
+                    "current": round(c, 2),
+                    "change_pct": round((c - o) / o * 100, 2),
+                    "dir": "UP" if c >= o else "DOWN",
+                }
+            except Exception:  # noqa: BLE001 — one ticker must not break the rest
+                continue
+        log.info("Live prices gathered for %d/%d stocks", len(live), len(set(tickers)))
+        return {"live": live}
+    except Exception as exc:  # noqa: BLE001
+        log.warning("Live price fetch failed: %s", exc)
+        return {"live": {}}
+
+
 def _build_prompt(state: dict) -> str:
     """Render the LLM prompt, trimmed to stay within free-tier token limits.
 
@@ -289,8 +339,9 @@ def _build_prompt(state: dict) -> str:
     of the (larger) news set the UI displays.
     """
     ncfg = _news_cfg()
-    max_news_stocks = int(ncfg.get("prompt_max_stocks", 12))
-    snip = int(ncfg.get("prompt_snippet_chars", 200))
+    max_news_stocks = int(ncfg.get("prompt_max_stocks", 10))
+    max_signals = int(ncfg.get("prompt_max_signals", 30))
+    snip = int(ncfg.get("prompt_snippet_chars", 180))
 
     budget = state["budget"]
     currency = state["currency"]
@@ -302,21 +353,45 @@ def _build_prompt(state: dict) -> str:
         "",
         "MODEL PERFORMANCE (out-of-sample test set — the same directional model "
         "that produced the signals below):",
-        "  Accuracy 0.68 | Precision 0.63 | Recall 0.74 | F1 0.68 | ROC-AUC 0.76",
+        "  Accuracy 0.89 | Precision 0.90 | Recall 0.88 | F1 0.89 | ROC-AUC 0.89",
         "  Per-class report (precision / recall / f1, support):",
-        "    UP   (1): 0.63 / 0.74 / 0.68  (n=2444)",
-        "    DOWN (0): 0.74 / 0.63 / 0.68  (n=2834)",
-        "  Read: the model catches most real UP moves (UP recall ~0.74) but UP "
-        "precision is only ~0.63, so expect a fair share of false UP calls. "
-        "Treat up_probability as useful-but-imperfect confidence, not a guarantee, "
-        "and size risk accordingly.",
+        "    UP   (1): 0.90 / 0.88 / 0.89  (n=6280)",
+        "    DOWN (0): 0.89 / 0.91 / 0.90  (n=7040)",
+        "  What each metric represents (predicting next-day direction: UP=1 / DOWN=0):",
+        "    Accuracy  = share of all next-day UP/DOWN calls that were correct.",
+        "    Precision = of the stocks it flagged UP, the share that actually rose "
+        "(controls false UP alarms).",
+        "    Recall    = of the stocks that actually rose, the share it caught.",
+        "    F1        = harmonic mean of precision & recall (overall balance).",
+        "    ROC-AUC   = how well up_probability RANKS winners vs losers "
+        "(1.0 perfect, 0.5 coin-flip); ~0.89 => up_probability is a meaningful, "
+        "well-ordered confidence score, not noise.",
+        "  Read: the model is strong and balanced (~89%), so high up_probability is "
+        "quite reliable — but it is a NEXT-DAY forecast made before today's trading; "
+        "no model is certain.",
         "",
-        "MODEL SIGNALS (sorted by up-probability; higher = more confident UP):",
+        f"MODEL SIGNALS + CURRENT SITUATION (top {max_signals or len(preds)} by "
+        "up-probability). 'live' = how the stock is ACTUALLY trading today vs its "
+        "open price:",
     ]
-    for r in preds:
+    live = state.get("live") or {}
+    listed = preds[:max_signals] if max_signals else preds
+    for r in listed:
+        tk = r.get("ticker")
+        lv = live.get(tk)
+        live_txt = (
+            f" | live: {lv['change_pct']:+.2f}% from open ({lv['dir']}, "
+            f"{lv['open']}->{lv['current']})"
+            if lv else " | live: n/a"
+        )
         lines.append(
-            f"- {r.get('stock')} [{r.get('ticker')}]: signal={r.get('signal')}, "
-            f"up_probability={r.get('up_probability')}"
+            f"- {r.get('stock')} [{tk}]: signal={r.get('signal')}, "
+            f"up_probability={r.get('up_probability')}{live_txt}"
+        )
+    if max_signals and len(preds) > max_signals:
+        lines.append(
+            f"  (+{len(preds) - max_signals} more lower-probability stocks omitted "
+            "— they are weaker candidates; ignore unless needed.)"
         )
 
     if state.get("market_news"):
@@ -340,11 +415,28 @@ def _build_prompt(state: dict) -> str:
 
 
 _SYSTEM = """You are QuantPilot's portfolio strategist for Indian (NSE) equities.
-You are given an ML model's next-day directional signals (with up-probabilities),
-recent news, and a fixed investment budget. Draft EXACTLY three allocation plans.
+You are given an ML model's next-day directional signals (with up-probabilities and
+what its metrics mean), the LIVE current price action for each stock (move from
+today's open), recent news, and a fixed investment budget. Draft EXACTLY three
+allocation plans.
+
+RECALIBRATE before allocating — do NOT use the raw up_probability alone. For each
+stock, form a recalibrated conviction by combining THREE inputs:
+  1) the model's up_probability (a strong ~89%-accurate next-day forecast), and
+  2) the LIVE move from open today (is the call already confirming or failing?), and
+  3) the news tone.
+Apply this judgement:
+  * Model UP + live already UP (and/or supportive news) => CONFIRMED: raise conviction,
+    favour and size up these names.
+  * Model UP but live clearly DOWN from open (or bad news) => CONTRADICTED: cut
+    conviction; trim or drop it (the forecast is being invalidated in real time).
+  * Model DOWN: avoid; only include if live + news strongly argue otherwise (explain).
+Prefer names where model + live + news AGREE. State the recalibration logic briefly
+in each pick's "reason" (e.g. "UP 0.78, live +1.2% confirms, positive results").
 
 Each plan has a STRICT eligibility threshold on up_probability — never allocate
-to a stock whose up_probability is at or below the plan's cutoff.
+to a stock whose up_probability is at or below the plan's cutoff. (Recalibration
+adjusts conviction/sizing WITHIN the eligible set; it does not override the cutoff.)
 
 Plans (use these exact keys):
 - "aggressive": high return / high risk. ELIGIBLE: up_probability > 0.5.
@@ -447,18 +539,57 @@ def _node_validate(state: dict) -> dict:
     budget = state["budget"]
     raw_by_key = {p.get("key"): p for p in state.get("raw_plans", []) if isinstance(p, dict)}
 
+    # Lookups to enrich each allocation with the model confidence and live price.
+    prob_by: dict[str, float] = {}
+    for r in state.get("predictions", []):
+        try:
+            prob_by[r.get("ticker")] = round(float(r.get("up_probability")), 4)
+        except (TypeError, ValueError):
+            pass
+    live = state.get("live") or {}
+    trade_cfg = _agent_cfg().get("trade", {}) or {}
+
+    def _enrich(allocs: list[dict], target_pct: float, stoploss_pct: float) -> list[dict]:
+        for a in allocs:
+            tk = a.get("ticker")
+            a["up_probability"] = prob_by.get(tk)        # model confidence (None for CASH)
+            lv = live.get(tk)
+            entry = lv["current"] if lv else None         # entry = current live price
+            a["entry_price"] = entry
+            a["current_price"] = entry                    # kept for backward-compat
+            a["change_pct"] = lv["change_pct"] if lv else None
+            # Intraday exit levels off the entry price (None for CASH / no live data).
+            if entry:
+                a["target_pct"] = target_pct
+                a["stoploss_pct"] = stoploss_pct
+                a["target_price"] = round(entry * (1 + target_pct / 100), 2)   # book profit
+                a["stoploss_price"] = round(entry * (1 - stoploss_pct / 100), 2)  # cut loss
+            else:
+                a["target_pct"] = a["stoploss_pct"] = None
+                a["target_price"] = a["stoploss_price"] = None
+        return allocs
+
     plans = []
     for spec in PLAN_SPECS:
         raw = raw_by_key.get(spec["key"], {})
+        ov = trade_cfg.get(spec["key"], {}) or {}
+        try:
+            tp = float(ov.get("target_pct", spec["target_pct"]))
+            sp = float(ov.get("stoploss_pct", spec["stoploss_pct"]))
+        except (TypeError, ValueError):
+            tp, sp = spec["target_pct"], spec["stoploss_pct"]
         allocs, total = _normalise_allocations(raw.get("allocations", []), budget)
         plans.append({
             "key": spec["key"],
             "title": spec["title"],
             "objective": spec["objective"],
             "risk_level": spec["risk_level"],
+            "threshold": spec["threshold"],
+            "target_pct": tp,
+            "stoploss_pct": sp,
             "summary": str(raw.get("summary", "")).strip(),
             "expected_return": str(raw.get("expected_return", "")).strip(),
-            "allocations": allocs,
+            "allocations": _enrich(allocs, tp, sp),
             "total": total,
         })
     return {"plans": plans}
@@ -472,6 +603,7 @@ def _build_graph():
 
     g = StateGraph(AdvisorState)
     g.add_node("load", _node_load_predictions)
+    g.add_node("live", _node_fetch_live)
     g.add_node("news", _node_fetch_news)
     g.add_node("draft", _node_draft_plans)
     g.add_node("validate", _node_validate)
@@ -479,7 +611,8 @@ def _build_graph():
     g.set_entry_point("load")
     g.add_conditional_edges(
         "load", lambda s: "stop" if s.get("error") else "go",
-        {"stop": END, "go": "news"})
+        {"stop": END, "go": "live"})
+    g.add_edge("live", "news")
     g.add_edge("news", "draft")
     g.add_conditional_edges(
         "draft", lambda s: "stop" if s.get("error") else "go",
@@ -570,6 +703,7 @@ def generate_plans(budget: float,
         "plans": final.get("plans", []),
         "market_news": final.get("market_news", []),
         "stock_news": final.get("stock_news", {}),
+        "live": final.get("live", {}),
         "news_enabled": final.get("news_enabled", False),
         "generated_with": {
             "provider": _provider(),

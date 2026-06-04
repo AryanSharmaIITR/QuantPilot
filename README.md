@@ -368,7 +368,7 @@ root.
 # Full training pipeline: ingest (3y) -> feature engineering -> train -> evaluate
 python signals/pipeline.py train-pipeline
 
-# Daily inference pipeline: ingest (1mo) -> feature engineering -> predict
+# Daily inference pipeline: ingest (2mo) -> feature engineering -> predict
 python signals/pipeline.py predict-pipeline
 ```
 

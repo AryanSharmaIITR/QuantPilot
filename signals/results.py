@@ -52,11 +52,22 @@ class PredictionDataset(Dataset):
         self.mkd = [self._align(df) for df in self.mkd]
         self.skd = [self._align(df) for df in self.skd]
 
-        # Normalize per-feature across all instruments (matches training).
-        all_market = np.concatenate([df.values for df in self.mkd], axis=0)
-        all_stock = np.concatenate([df.values for df in self.skd], axis=0)
-        m_mean, m_std = all_market.mean(0), all_market.std(0) + 1e-8
-        s_mean, s_std = all_stock.mean(0), all_stock.std(0) + 1e-8
+        # Normalize per-feature using the TRAIN-only stats saved at training time.
+        # This both matches training exactly AND avoids any look-ahead — the live/
+        # backtest window is never normalized with its own (partly future) stats.
+        stats = self._load_train_stats()
+        if stats is not None:
+            m_mean, m_std, s_mean, s_std = stats
+        else:
+            log.warning(
+                "Train normalization stats not found (%s) — falling back to "
+                "window stats. Retrain to generate them and remove this leakage.",
+                D.NORM_STATS_PATH,
+            )
+            all_market = np.concatenate([df.values for df in self.mkd], axis=0)
+            all_stock = np.concatenate([df.values for df in self.skd], axis=0)
+            m_mean, m_std = all_market.mean(0), all_market.std(0) + 1e-8
+            s_mean, s_std = all_stock.mean(0), all_stock.std(0) + 1e-8
         self.mkd = [(df - m_mean) / m_std for df in self.mkd]
         self.skd = [(df - s_mean) / s_std for df in self.skd]
 
@@ -65,6 +76,14 @@ class PredictionDataset(Dataset):
     def _align(self, df: pd.DataFrame) -> pd.DataFrame:
         df = df[df["Date"].isin(self.common_dates)].copy()
         return df.sort_values("Date").set_index("Date")
+
+    @staticmethod
+    def _load_train_stats():
+        """Load persisted TRAIN-only normalization stats, or None if absent."""
+        if not os.path.exists(D.NORM_STATS_PATH):
+            return None
+        z = np.load(D.NORM_STATS_PATH)
+        return z["market_mean"], z["market_std"], z["stock_mean"], z["stock_std"]
 
     def __len__(self) -> int:
         return len(self.common_dates) - self.sequence_length - 1

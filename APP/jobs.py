@@ -9,6 +9,7 @@ directories, so concurrent runs could corrupt each other.
 """
 from __future__ import annotations
 
+import re
 import subprocess
 import sys
 import threading
@@ -117,12 +118,29 @@ def list_jobs() -> list[dict]:
 
 
 def read_log(job_id: str, tail: int = 400) -> str | None:
+    """Return the tail of a job's log.
+
+    Falls back to the on-disk log file when the job isn't tracked in memory
+    (e.g. after a server restart), so old job logs stay viewable and stale
+    clients don't get a 404 storm. Returns None only when no log exists.
+    """
     with _lock:
         job = _jobs.get(job_id)
-    if job is None:
-        return None
+
+    if job is not None:
+        log_path = job["log_file"]
+    else:
+        # Untracked job: serve its log file from disk if the id is well-formed
+        # (12 hex chars — guards against path traversal) and the file exists.
+        if not re.fullmatch(r"[0-9a-f]{12}", job_id):
+            return None
+        candidate = LOG_DIR / f"{job_id}.log"
+        if not candidate.exists():
+            return None
+        log_path = str(candidate)
+
     try:
-        with open(job["log_file"], "r") as f:
+        with open(log_path, "r") as f:
             lines = f.readlines()
         return "".join(lines[-tail:])
     except OSError:

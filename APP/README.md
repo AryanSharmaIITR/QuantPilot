@@ -28,7 +28,7 @@ QuantPilot is a four-stage ML pipeline with a web control panel and an AI adviso
 top. The data flows in one direction:
 
 ```
-1. INGEST       yfinance → raw OHLC for 29 stocks + 11 market indices
+1. INGEST       yfinance → raw OHLC for ~148 stocks + 11 market indices
       ↓
 2. PREPROCESS   feature engineering (RSI, MACD, volatility, Sharpe/Sortino, …)
       ↓
@@ -69,8 +69,8 @@ at a time because stages share on-disk data directories.
 `GET /api/predictions` returns the latest `predictions.csv` as JSON. The date picker is
 driven by `GET /api/predictions/dates`, which exposes the selectable range (back across
 previous trading days, up to today/the next NSE open). When you pick a date and run the
-predict pipeline, ingestion fetches **one month of history ending the session before that
-date**, so you can predict any past trading day — not just the most recent window.
+predict pipeline, ingestion fetches **two months of history ending the session before
+that date**, so you can predict any past trading day — not just the most recent window.
 
 ### 🤖 AI Advisor
 `POST /api/advisor/plan` (with a `budget`) runs the LangGraph agent in

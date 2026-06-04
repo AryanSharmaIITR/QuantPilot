@@ -67,7 +67,7 @@ def train_pipeline() -> None:
 def predict_pipeline(target_date: str | None = None) -> None:
     log.info("########## PREDICT PIPELINE START ##########")
     # Anchor the download window to the requested date so the prediction is made
-    # from one month of history ending the session before it.
+    # from the configured history window (2 months) ending the session before it.
     _ingest("predict", end_date=target_date)
     _preprocess("predict")
     _predict(target_date)
