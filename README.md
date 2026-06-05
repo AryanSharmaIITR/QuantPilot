@@ -34,7 +34,7 @@ python APP/run.py                             # launch the web UI → http://127
 # Overview
 
 QuantPilot is a hybrid quantitative AI framework designed for financial time-series modeling and directional stock movement prediction.
-
+Currently Prediction Capability of 148 Stocks
 The system combines:
 
 - transformer-based sequential representation learning
